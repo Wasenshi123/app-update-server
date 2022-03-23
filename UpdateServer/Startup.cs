@@ -32,6 +32,9 @@ namespace UpdateServer
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "UpdateServer", Version = "v1" });
             });
+
+            services.Configure<Dictionary<string, string>>("AppNames", Configuration.GetSection("AppNames"));
+            services.AddTransient<UpdateManager>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

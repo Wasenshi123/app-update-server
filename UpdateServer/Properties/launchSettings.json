@@ -24,7 +24,8 @@
       "publishAllPorts": true,
       "useSSL": true,
       "httpPort": 8600,
-      "sslPort":  8700
+      "sslPort": 8700,
+      
     }
   }
 }
