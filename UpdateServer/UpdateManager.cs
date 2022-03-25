@@ -44,6 +44,17 @@ namespace UpdateServer
             return appFolder;
         }
 
+        public string GetUpdateFileForApp(string appName)
+        {
+            var baseAppPath = GetFolder(appName);
+            if (string.IsNullOrWhiteSpace(baseAppPath))
+            {
+                return null;
+            }
+            var filePath = GetLatestAppFile(baseAppPath);
+            return filePath;
+        }
+
         /// <summary>
         /// Check the latest version of the update file against the requested value.
         /// Return true if up-to-date, otherwise, return false.
@@ -53,25 +64,21 @@ namespace UpdateServer
         /// <returns>true if up-to-date, otherwise, false</returns>
         public bool CheckVersion(string appFolder, CheckRequest check)
         {
-            var fileList = Directory.EnumerateFiles(appFolder)
-                .OrderByDescending(x => x)
-                .ThenByDescending(x => new FileInfo(Path.Combine(appFolder, x)).LastWriteTimeUtc)
-                .ToList();
-
-            if (fileList.Count == 0)
+            var latest = new FileInfo(GetLatestAppFile(appFolder));
+            if (!latest.Exists)
             {
                 return true;
             }
 
-            var latest = new FileInfo(fileList.First());
             if (check.Version == null && check.Modified == null)
             {
                 return false;
             }
 
             var splits = Path.GetFileNameWithoutExtension(latest.Name).Split('-');
-            var latestVersion = splits.Length > 1 ? splits.Last() : null;
-            if (latestVersion != null && Version.Parse(check.Version) < Version.Parse(latestVersion))
+            var latestVersion = splits.Length > 1 ? splits.Last().Replace(".tar", "") : null;
+            if (latestVersion != null && !string.IsNullOrWhiteSpace(check.Version) 
+                && Version.Parse(check.Version) < Version.Parse(latestVersion))
             {
                 return false;
             }
@@ -82,6 +89,22 @@ namespace UpdateServer
             }
 
             return true;
+        }
+
+        private string GetLatestAppFile(string appFolder)
+        {
+            var fileList = Directory.EnumerateFiles(appFolder)
+                .OrderByDescending(x => x)
+                .ThenByDescending(x => new FileInfo(Path.Combine(appFolder, x)).LastWriteTimeUtc)
+                .ToList();
+
+            if (fileList.Count == 0)
+            {
+                return null;
+            }
+
+            string latest = fileList.First();
+            return latest;
         }
 
     }

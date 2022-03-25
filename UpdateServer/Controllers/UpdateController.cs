@@ -6,6 +6,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Threading.Tasks;
 
@@ -41,12 +44,38 @@ namespace UpdateServer.Controllers
             string appFolder = manager.GetFolder(app);
             if (appFolder == null)
             {
+                _logger.LogInformation($"Trying to check update for non-existing app: {app}");
                 return NotFound();
             }
 
             bool upToDate = manager.CheckVersion(appFolder, check);
 
             return Ok(upToDate);
+        }
+
+        [HttpGet("{app}/download")]
+        public IActionResult DownloadFile(string app)
+        {
+            string localFilePath = manager.GetUpdateFileForApp(app);
+            if (Path.GetExtension(localFilePath) != ".gz")
+            {
+                _logger.LogError($"File is not a tarball file. [Appname: {app}]");
+                return Problem(title: "File Corrupted", detail: "File is corrupted. Please contact administrator.");
+            }
+
+            var lastWriteTime = new FileInfo(localFilePath).LastWriteTimeUtc;
+            var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read);
+
+            var result = File(fileStream, "application/gzip", "update.tar.gz");
+            result.LastModified = new DateTimeOffset(lastWriteTime);
+
+            return result;
+        }
+
+        public static string MakeEtag(long lastMod, long size)
+        {
+            string etag = '"' + lastMod.ToString("x") + '-' + size.ToString("x") + '"';
+            return etag;
         }
     }
 }
