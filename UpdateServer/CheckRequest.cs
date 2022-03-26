@@ -9,5 +9,6 @@ namespace UpdateServer
     {
         public string Version { get; set; }
         public DateTimeOffset? Modified { get; set; }
+        public string Checksum { get; set; }
     }
 }

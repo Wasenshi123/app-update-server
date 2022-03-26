@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 
 namespace UpdateServer
@@ -83,9 +84,15 @@ namespace UpdateServer
                 return false;
             }
 
-            if (latest.LastWriteTimeUtc > check.Modified.Value.UtcDateTime)
+            if (latest.LastWriteTimeUtc.TrimMilliseconds() > check.Modified.Value.UtcDateTime)
             {
                 return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(check.Checksum))
+            {
+                var checksum = GetMD5HashFromFile(latest.FullName);
+                return checksum.Equals(check.Checksum, StringComparison.InvariantCultureIgnoreCase);
             }
 
             return true;
@@ -105,6 +112,17 @@ namespace UpdateServer
 
             string latest = fileList.First();
             return latest;
+        }
+
+        private static string GetMD5HashFromFile(string fileName)
+        {
+            using (var md5 = MD5.Create())
+            {
+                using (var stream = File.OpenRead(fileName))
+                {
+                    return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", string.Empty);
+                }
+            }
         }
 
     }

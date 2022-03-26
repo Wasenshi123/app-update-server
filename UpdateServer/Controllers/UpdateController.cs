@@ -77,5 +77,6 @@ namespace UpdateServer.Controllers
             string etag = '"' + lastMod.ToString("x") + '-' + size.ToString("x") + '"';
             return etag;
         }
+        
     }
 }
