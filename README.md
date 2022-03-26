@@ -1,6 +1,8 @@
 # App Update Server
 This is a simple REST based server for hosting update files for any app. It has dedicated updater app here: https://github.com/Wasenshi123/app-updater
 
+The server use .NET 5.0
+
 ## Update File
 This server expects the most universal format for every platform, **tarball** (```*.tar.gz```).
 You can use any tool available in your platform to put every files and folders into .tar archive, then compress into .gz, that is the basic of tarball.
