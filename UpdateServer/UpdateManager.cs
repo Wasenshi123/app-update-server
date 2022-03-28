@@ -65,11 +65,12 @@ namespace UpdateServer
         /// <returns>true if up-to-date, otherwise, false</returns>
         public bool CheckVersion(string appFolder, CheckRequest check)
         {
-            var latest = new FileInfo(GetLatestAppFile(appFolder));
-            if (!latest.Exists)
+            var filePath = GetLatestAppFile(appFolder);
+            if (string.IsNullOrWhiteSpace(filePath))
             {
                 return true;
             }
+            var latest = new FileInfo(filePath);
 
             if (check.Version == null && check.Modified == null)
             {
