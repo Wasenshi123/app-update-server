@@ -32,8 +32,7 @@ namespace UpdateServer.Controllers
         public IActionResult Get()
         {
             Assembly assembly = Assembly.GetExecutingAssembly();
-            FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
-            string version = fvi.FileVersion;
+            string version = assembly.GetName().Version.ToString();
 
             return Ok($"server version: {version}");
         }

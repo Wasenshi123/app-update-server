@@ -1,0 +1,31 @@
+FROM mcr.microsoft.com/dotnet/sdk:5.0-alpine AS publish
+WORKDIR /src
+COPY ["UpdateServer.csproj", "."]
+
+RUN dotnet restore "./UpdateServer.csproj" --runtime alpine-x64
+COPY . .
+RUN dotnet publish "UpdateServer.csproj" -c Release -o /app/publish \
+  --no-restore \  
+  --runtime alpine-x64 \
+  --self-contained true \
+  /p:PublishTrimmed=true \
+  /p:PublishSingleFile=true
+
+FROM mcr.microsoft.com/dotnet/runtime-deps:5.0-alpine AS final
+
+# create a new user and change directory ownership
+RUN adduser --disabled-password \
+  --home /app \
+  --gecos '' dotnetuser && chown -R dotnetuser /app
+
+# upgrade musl to remove potential vulnerability
+RUN apk upgrade musl
+
+# impersonate into the new user
+USER dotnetuser
+WORKDIR /app
+
+EXPOSE 80
+COPY --from=publish /app/publish .
+
+ENTRYPOINT ["./UpdateServer"]
