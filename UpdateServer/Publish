@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:5.0-alpine AS publish
+FROM mcr.microsoft.com/dotnet/sdk:6.0-alpine AS publish
 WORKDIR /src
 COPY ["UpdateServer.csproj", "."]
 
@@ -11,7 +11,7 @@ RUN dotnet publish "UpdateServer.csproj" -c Release -o /app/publish \
   /p:PublishTrimmed=true \
   /p:PublishSingleFile=true
 
-FROM mcr.microsoft.com/dotnet/runtime-deps:5.0-alpine AS final
+FROM mcr.microsoft.com/dotnet/runtime-deps:6.0-alpine AS final
 
 # create a new user and change directory ownership
 RUN adduser --disabled-password \
