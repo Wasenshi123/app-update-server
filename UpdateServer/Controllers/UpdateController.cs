@@ -65,7 +65,9 @@ namespace UpdateServer.Controllers
             var lastWriteTime = new FileInfo(localFilePath).LastWriteTimeUtc;
             var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read);
 
-            var result = File(fileStream, "application/gzip", "update.tar.gz");
+            var filename = Path.GetFileName(localFilePath);
+            bool useOriginalFilename = filename.Split("-").Length == 2;
+            var result = File(fileStream, "application/gzip", useOriginalFilename ? filename : "update.tar.gz");
             result.LastModified = new DateTimeOffset(lastWriteTime);
 
             return result;
