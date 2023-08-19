@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -77,10 +78,15 @@ namespace UpdateServer
                 return false;
             }
 
-            var splits = Path.GetFileNameWithoutExtension(latest.Name).Split('-');
-            var latestVersion = splits.Length > 1 ? splits.Last().Replace(".tar", "") : null;
-            if (latestVersion != null && !string.IsNullOrWhiteSpace(check.Version) 
-                && Version.Parse(check.Version) < Version.Parse(latestVersion))
+            var latestVersion = GetFileVersionFromName(latest);
+            if (latestVersion != null && !string.IsNullOrWhiteSpace(check.Version)
+                && Version.Parse(check.Version) < latestVersion)
+            {
+                return false;
+            }
+
+            latestVersion = GetFileVersion(filePath);
+            if (Version.Parse(check.Version) < latestVersion)
             {
                 return false;
             }
@@ -99,10 +105,10 @@ namespace UpdateServer
             return true;
         }
 
-        private string GetLatestAppFile(string appFolder)
+        private static string GetLatestAppFile(string appFolder)
         {
             var fileList = Directory.EnumerateFiles(appFolder)
-                .OrderByDescending(x => x)
+                .OrderByDescending(x => GetFileVersionFromName(x) ?? GetFileVersion(x))
                 .ThenByDescending(x => new FileInfo(Path.Combine(appFolder, x)).LastWriteTimeUtc)
                 .ToList();
 
@@ -111,8 +117,32 @@ namespace UpdateServer
                 return null;
             }
 
-            string latest = fileList.First();
+            string latest = fileList[0];
             return latest;
+        }
+
+        private static Version GetFileVersionFromName(string filePath)
+        {
+            return GetFileVersionFromName(new FileInfo(filePath));
+        }
+
+        private static Version GetFileVersionFromName(FileInfo fileInfo)
+        {
+            var splits = Path.GetFileNameWithoutExtension(fileInfo.Name).Split('-');
+            var latestVersion = splits.Length > 1 ? splits.Last().Replace(".tar", "").Replace(".gz", "").Replace(".exe", "") : null;
+
+            if (latestVersion != null)
+            {
+                return Version.Parse(latestVersion);
+            }
+
+            return null;
+        }
+
+        private static Version GetFileVersion(string filePath)
+        {
+            var fileInfo = FileVersionInfo.GetVersionInfo(filePath);
+            return Version.Parse(fileInfo.ProductVersion);
         }
 
         private static string GetMD5HashFromFile(string fileName)

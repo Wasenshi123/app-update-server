@@ -43,7 +43,7 @@ namespace UpdateServer.Controllers
             string appFolder = manager.GetFolder(app);
             if (appFolder == null)
             {
-                _logger.LogInformation($"Trying to check update for non-existing app: {app}");
+                _logger.LogInformation("Trying to check update for non-existing app: {app}", app);
                 return NotFound();
             }
 
@@ -56,18 +56,23 @@ namespace UpdateServer.Controllers
         public IActionResult DownloadFile(string app)
         {
             string localFilePath = manager.GetUpdateFileForApp(app);
-            if (Path.GetExtension(localFilePath) != ".gz")
+            bool isExecutable = Path.GetExtension(localFilePath) == ".exe";
+            if (!isExecutable && Path.GetExtension(localFilePath) != ".gz")
             {
-                _logger.LogError($"File is not a tarball file. [Appname: {app}]");
-                return Problem(title: "File Corrupted", detail: "File is corrupted. Please contact administrator.");
+                _logger.LogError("File is not an executable nor tarball file. [Appname: {app}]", app);
+                return Problem(detail: "File is corrupted. Please contact administrator.", title: "File Corrupted");
             }
 
-            var lastWriteTime = new FileInfo(localFilePath).LastWriteTimeUtc;
+            var fileInfo = new FileInfo(localFilePath);
+            var lastWriteTime = fileInfo.LastWriteTimeUtc;
             var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read);
 
             var filename = Path.GetFileName(localFilePath);
             bool useOriginalFilename = filename.Split("-").Length == 2;
-            var result = File(fileStream, "application/gzip", useOriginalFilename ? filename : "update.tar.gz");
+            string contentType = isExecutable ? "application/vnd.microsoft.portable-executable" : "application/gzip";
+            string extension = isExecutable ? ".exe" : ".tar.gz";
+
+            var result = File(fileStream, contentType, useOriginalFilename ? filename : $"update{extension}");
             result.LastModified = new DateTimeOffset(lastWriteTime);
 
             return result;
@@ -78,6 +83,5 @@ namespace UpdateServer.Controllers
             string etag = '"' + lastMod.ToString("x") + '-' + size.ToString("x") + '"';
             return etag;
         }
-        
     }
 }
