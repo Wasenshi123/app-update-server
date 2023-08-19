@@ -141,8 +141,17 @@ namespace UpdateServer
 
         private static Version GetFileVersion(string filePath)
         {
+            if (new FileInfo(filePath).Extension != ".exe")
+            {
+                return null;
+            }
             var fileInfo = FileVersionInfo.GetVersionInfo(filePath);
-            return Version.Parse(fileInfo.ProductVersion);
+            string versionStr = fileInfo.ProductVersion ?? fileInfo.FileVersion;
+            if (versionStr == null)
+            {
+                return null;
+            }
+            return Version.Parse(versionStr);
         }
 
         private static string GetMD5HashFromFile(string fileName)
