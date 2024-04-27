@@ -47,7 +47,11 @@ namespace UpdateServer.Controllers
                 return NotFound();
             }
 
+            _logger.LogInformation("{app} Checking... user version: {version}", app, check.Version ?? "Unknown");
+
             bool upToDate = manager.CheckVersion(appFolder, check);
+
+            _logger.LogInformation("{app} is update to date: {upToDate}", app, upToDate);
 
             return Ok(upToDate);
         }

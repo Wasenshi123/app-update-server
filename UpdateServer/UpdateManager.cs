@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,12 +13,13 @@ namespace UpdateServer
     public class UpdateManager
     {
         private readonly IOptionsMonitor<Dictionary<string, string>> dicts;
-
+        private readonly ILogger<UpdateManager> logger;
         public const string PREFIX_FOLDER = "apps";
 
-        public UpdateManager(IOptionsMonitor<Dictionary<string, string>> dicts)
+        public UpdateManager(IOptionsMonitor<Dictionary<string, string>> dicts, ILogger<UpdateManager> logger)
         {
             this.dicts = dicts;
+            this.logger = logger;
         }
 
         /// <summary>
@@ -82,17 +84,22 @@ namespace UpdateServer
             if (latestVersion != null && !string.IsNullOrWhiteSpace(check.Version)
                 && Version.Parse(check.Version) < latestVersion)
             {
+                logger.LogInformation("latest version: {version}", latestVersion);
                 return false;
             }
 
             latestVersion = GetFileVersion(filePath);
-            if (Version.Parse(check.Version) < latestVersion)
+            if (latestVersion != null && Version.Parse(check.Version) < latestVersion)
             {
+                logger.LogInformation("latest version: {version}", latestVersion);
                 return false;
             }
 
+            logger.LogInformation("Checking modified & checksum..");
+
             if (latest.LastWriteTimeUtc.TrimMilliseconds() > check.Modified.Value.UtcDateTime)
             {
+                logger.LogInformation("File on server is newer.");
                 return false;
             }
 
