@@ -1,12 +1,13 @@
-FROM mcr.microsoft.com/dotnet/sdk:6.0-alpine AS publish
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS publish
+ARG TARGETARCH
 WORKDIR /src
 COPY ["UpdateServer.csproj", "."]
 
-RUN dotnet restore "./UpdateServer.csproj" --runtime alpine-x64
+RUN dotnet restore "./UpdateServer.csproj" --arch $TARGETARCH
 COPY . .
 RUN dotnet publish "UpdateServer.csproj" -c Release -o /app/publish \
   --no-restore \  
-  --runtime alpine-x64 \
+  --arch $TARGETARCH \
   --self-contained true \
   /p:PublishTrimmed=true \
   /p:PublishSingleFile=true
