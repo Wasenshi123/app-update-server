@@ -3,11 +3,11 @@ ARG TARGETARCH
 WORKDIR /src
 COPY ["UpdateServer.csproj", "."]
 
-RUN dotnet restore "./UpdateServer.csproj" --arch $TARGETARCH
+RUN dotnet restore "./UpdateServer.csproj" --runtime $( if [ "$TARGETARCH" == "arm64" ]; then echo "alpine-arm64"; else echo "alpine-x64"; fi )
 COPY . .
 RUN dotnet publish "UpdateServer.csproj" -c Release -o /app/publish \
   --no-restore \  
-  --arch $TARGETARCH \
+  --runtime $( if [ "$TARGETARCH" == "arm64" ]; then echo "alpine-arm64"; else echo "alpine-x64"; fi ) \
   --self-contained true \
   /p:PublishTrimmed=true \
   /p:PublishSingleFile=true
