@@ -38,7 +38,7 @@ namespace UpdateServer.Controllers
         }
 
         [HttpPost("{app}/check")]
-        public IActionResult CheckUpdate(string app, [FromBody] CheckRequest check = null)
+        public IActionResult CheckUpdate(string app, [FromBody] CheckRequest check = null, [FromQuery] bool includePrerelease = true)
         {
             string appFolder = manager.GetFolder(app);
             if (appFolder == null)
@@ -49,7 +49,7 @@ namespace UpdateServer.Controllers
 
             _logger.LogInformation("{app} Checking... user version: {version}", app, check.Version ?? "Unknown");
 
-            bool upToDate = manager.CheckVersion(appFolder, check);
+            bool upToDate = manager.CheckVersion(appFolder, check, includePrerelease);
 
             _logger.LogInformation("{app} is update to date: {upToDate}", app, upToDate);
 
@@ -57,9 +57,14 @@ namespace UpdateServer.Controllers
         }
 
         [HttpGet("{app}/download")]
-        public IActionResult DownloadFile(string app)
+        public IActionResult DownloadFile(string app, [FromQuery] bool includePrerelease = true)
         {
-            string localFilePath = manager.GetUpdateFileForApp(app);
+            string localFilePath = manager.GetUpdateFileForApp(app, includePrerelease);
+            if (string.IsNullOrEmpty(localFilePath))
+            {
+                _logger.LogError("No update file found for app: {app}", app);
+                return NotFound();
+            }
             bool isExecutable = Path.GetExtension(localFilePath) == ".exe";
             if (!isExecutable && Path.GetExtension(localFilePath) != ".gz")
             {
@@ -80,6 +85,40 @@ namespace UpdateServer.Controllers
             result.LastModified = new DateTimeOffset(lastWriteTime);
 
             return result;
+        }
+
+        [HttpGet("{app}/latest-info")]
+        public IActionResult GetLatestInfo(string app)
+        {
+            string appFolder = manager.GetFolder(app);
+            if (appFolder == null)
+            {
+                _logger.LogInformation("Trying to get latest info for non-existing app: {app}", app);
+                return NotFound();
+            }
+
+            var info = manager.GetLatestUpdateInfo(appFolder);
+            if (info == null)
+            {
+                return NotFound();
+            }
+
+            // Return a simplified DTO for the client
+            return Ok(new
+            {
+                stable = info.LatestStable == null ? null : new
+                {
+                    version = info.LatestStable.Version?.ToString(),
+                    file = Path.GetFileName(info.LatestStable.FilePath),
+                    lastModified = info.LatestStable.LastModified
+                },
+                prerelease = info.LatestPreRelease == null ? null : new
+                {
+                    version = info.LatestPreRelease.Version?.ToString(),
+                    file = Path.GetFileName(info.LatestPreRelease.FilePath),
+                    lastModified = info.LatestPreRelease.LastModified
+                }
+            });
         }
 
         public static string MakeEtag(long lastMod, long size)
