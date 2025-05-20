@@ -88,7 +88,7 @@ namespace UpdateServer.Controllers
         }
 
         [HttpGet("{app}/latest-info")]
-        public IActionResult GetLatestInfo(string app)
+        public IActionResult GetLatestInfo(string app, [FromQuery] bool includePreRelease = false)
         {
             string appFolder = manager.GetFolder(app);
             if (appFolder == null)
@@ -112,12 +112,12 @@ namespace UpdateServer.Controllers
                     file = Path.GetFileName(info.LatestStable.FilePath),
                     lastModified = info.LatestStable.LastModified
                 },
-                prerelease = info.LatestPreRelease == null ? null : new
+                prerelease = includePreRelease && info.LatestPreRelease != null ? new
                 {
                     version = info.LatestPreRelease.Version?.ToString(),
                     file = Path.GetFileName(info.LatestPreRelease.FilePath),
                     lastModified = info.LatestPreRelease.LastModified
-                }
+                } : null
             });
         }
 
