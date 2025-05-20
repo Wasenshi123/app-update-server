@@ -1,7 +1,7 @@
 # App Update Server
 This is a simple REST based server for hosting update files for any app. It has dedicated updater app here: https://github.com/Wasenshi123/app-updater
 
-The server use .NET 5.0
+The server use .NET 6.0
 
 ## Update File
 This server expects the most universal format for every platform, **tarball** (```*.tar.gz```).
@@ -30,3 +30,6 @@ And for the same versioning file, the general rule is, **the most recent modifie
 (According to this rule, multiple version-less file names will virtually be interpreted as the same version, and the newest file will win.)
 
 So in short, you can choose to just put your update file as tarball file into the corresponding path, (without version), and everything will just work. The newest file will always be treated as latest.
+
+## New Version (1.2.0)
+The server now support pre-release version
