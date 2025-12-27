@@ -34,7 +34,9 @@ namespace UpdateServer
             });
 
             services.Configure<Dictionary<string, string>>("AppNames", Configuration.GetSection("AppNames"));
+            services.Configure<Dictionary<string, string>>("AppFolderMapping", Configuration.GetSection("AppFolderMapping"));
             services.AddTransient<UpdateManager>();
+            services.AddTransient<Services.UpdaterUpdateService>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
