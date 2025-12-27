@@ -36,6 +36,8 @@ namespace UpdateServer
             services.Configure<Dictionary<string, string>>("AppNames", Configuration.GetSection("AppNames"));
             services.Configure<Dictionary<string, string>>("AppFolderMapping", Configuration.GetSection("AppFolderMapping"));
             services.AddTransient<UpdateManager>();
+            services.AddTransient<Services.CompressionService>();
+            services.AddTransient<Services.UpgradeService>();
             services.AddTransient<Services.UpdaterUpdateService>();
         }
 

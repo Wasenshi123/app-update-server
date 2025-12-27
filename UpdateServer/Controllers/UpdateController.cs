@@ -24,17 +24,20 @@ namespace UpdateServer.Controllers
         private readonly ILogger<UpdateController> _logger;
         private readonly UpdateManager manager;
         private readonly UpdaterUpdateService updaterUpdateService;
+        private readonly UpgradeService upgradeService;
         private readonly IOptionsMonitor<Dictionary<string, string>> appFolderMapping;
 
         public UpdateController(
             ILogger<UpdateController> logger, 
             UpdateManager manager,
             UpdaterUpdateService updaterUpdateService,
+            UpgradeService upgradeService,
             IOptionsMonitor<Dictionary<string, string>> appFolderMapping)
         {
             _logger = logger;
             this.manager = manager;
             this.updaterUpdateService = updaterUpdateService;
+            this.upgradeService = upgradeService;
             this.appFolderMapping = appFolderMapping;
         }
 
@@ -70,6 +73,75 @@ namespace UpdateServer.Controllers
             return Ok(upToDate);
         }
 
+        [HttpPost("{app}/check-upgrades")]
+        public IActionResult CheckUpgrades(string app, [FromBody] CheckRequest request, [FromQuery] bool includePrerelease = false)
+        {
+            if (string.IsNullOrEmpty(request?.Version))
+            {
+                 return BadRequest("Version is required");
+            }
+
+            var clientVersion = AppVersion.Parse(request.Version);
+            if (clientVersion == null)
+            {
+                return BadRequest("Invalid version format");
+            }
+
+            var result = upgradeService.GetApplicableUpgrades(app, clientVersion, includePrerelease);
+            if (result == null)
+            {
+                return NotFound();
+            }
+
+            // If no upgrades found, returning up-to-date or similar
+            if (result.Upgrades.Count == 0)
+            {
+                // Return 204 No Content to indicate up to date, or empty list
+                // Design doc says: "Result: No upgrades needed, returns 204 No Content"
+                return NoContent();
+            }
+
+            return Ok(new UpgradeInfoWrapper
+            {
+                CurrentVersion = request.Version,
+                TargetVersion = result.TargetVersion,
+                Upgrades = result.Upgrades.Select(u => new UpgradeSummary
+                {
+                    Id = u.Id,
+                    Name = u.Name,
+                    Priority = u.Priority
+                }).ToList(),
+                PackageSize = result.EstimatedSize,
+                RequiresDownload = true
+            });
+        }
+
+        [HttpGet("{app}/download-upgrade")]
+        public async Task<IActionResult> DownloadUpgrade(string app, [FromQuery] string fromVersion, [FromQuery] bool includePrerelease = false)
+        {
+            if (string.IsNullOrEmpty(fromVersion))
+                return BadRequest("fromVersion is required");
+
+            var clientVersion = AppVersion.Parse(fromVersion);
+            if (clientVersion == null)
+                return BadRequest("Invalid version format");
+
+            try
+            {
+                var packagePath = await upgradeService.BuildUpgradePackage(app, clientVersion, includePrerelease);
+                
+                if (packagePath == null)
+                    return NotFound();
+                
+                return await ServePackage(packagePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download upgrade package");
+                return StatusCode(500, "Internal server error during package generation");
+            }
+        }
+
         [HttpGet("{app}/download")]
         public async Task<IActionResult> DownloadFile(string app, [FromQuery] bool includePrerelease = true)
         {
@@ -99,7 +171,7 @@ namespace UpdateServer.Controllers
                     string appFolderName = GetAppFolderName(app);
                     
                     var packagePath = await updaterUpdateService.PackageAppUpdateWithUpdater(app, localFilePath, appFolderName);
-                    if (packagePath != null && File.Exists(packagePath))
+                    if (packagePath != null && System.IO.File.Exists(packagePath))
                     {
                         return await ServePackage(packagePath);
                     }

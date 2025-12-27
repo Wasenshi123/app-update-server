@@ -3,9 +3,7 @@ using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace UpdateServer.Services
@@ -14,16 +12,19 @@ namespace UpdateServer.Services
     {
         private readonly ILogger<UpdaterUpdateService> logger;
         private readonly UpdateManager updateManager;
+        private readonly CompressionService compressionService;
         private readonly IOptionsMonitor<Dictionary<string, string>> appFolderMapping;
         private const string MIN_UPDATER_VERSION = "2.0.0";
 
         public UpdaterUpdateService(
             ILogger<UpdaterUpdateService> logger, 
             UpdateManager updateManager,
+            CompressionService compressionService,
             IOptionsMonitor<Dictionary<string, string>> appFolderMapping)
         {
             this.logger = logger;
             this.updateManager = updateManager;
+            this.compressionService = compressionService;
             this.appFolderMapping = appFolderMapping;
         }
 
@@ -96,7 +97,7 @@ namespace UpdateServer.Services
                 // Extract app update
                 var appExtractDir = Path.Combine(tempDir, "app");
                 Directory.CreateDirectory(appExtractDir);
-                await ExtractTarGz(appUpdatePath, appExtractDir);
+                await compressionService.ExtractTarGz(appUpdatePath, appExtractDir);
 
                 // Add updater update to upgrade folder (existing pattern)
                 var upgradeDir = Path.Combine(appExtractDir, "upgrade");
@@ -130,7 +131,7 @@ namespace UpdateServer.Services
 
                 // Create new package
                 var packagePath = Path.Combine(Path.GetTempPath(), $"app-with-updater-{Guid.NewGuid()}.tar.gz");
-                await CreateTarGz(appExtractDir, packagePath);
+                await compressionService.CreateTarGz(appExtractDir, packagePath);
 
                 logger.LogInformation("Packaged app update with updater update: {package} ({size} bytes)", 
                     Path.GetFileName(packagePath), new FileInfo(packagePath).Length);
@@ -157,160 +158,6 @@ namespace UpdateServer.Services
                     }
                 }
             }
-        }
-
-        /// <summary>
-        /// Extract tar.gz archive
-        /// </summary>
-        private async Task ExtractTarGz(string archivePath, string extractPath)
-        {
-            logger.LogDebug("Extracting {archive} to {path}", archivePath, extractPath);
-
-            using (var fileStream = File.OpenRead(archivePath))
-            using (var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress))
-            {
-                await ExtractTar(gzipStream, extractPath);
-            }
-        }
-
-        /// <summary>
-        /// Extract tar stream
-        /// </summary>
-        private async Task ExtractTar(Stream tarStream, string extractPath)
-        {
-            var buffer = new byte[512];
-            Directory.CreateDirectory(extractPath);
-
-            while (true)
-            {
-                // Read header (512 bytes)
-                int bytesRead = await tarStream.ReadAsync(buffer, 0, 512);
-                if (bytesRead == 0 || buffer.All(b => b == 0))
-                    break;
-
-                // Parse filename (first 100 bytes)
-                string fileName = System.Text.Encoding.ASCII.GetString(buffer, 0, 100).TrimEnd('\0');
-                if (string.IsNullOrWhiteSpace(fileName))
-                    break;
-
-                // Parse file size (octal, bytes 124-135)
-                string sizeStr = System.Text.Encoding.ASCII.GetString(buffer, 124, 12).TrimEnd('\0', ' ');
-                if (!long.TryParse(sizeStr, System.Globalization.NumberStyles.Integer, null, out long fileSize))
-                {
-                    fileSize = 0;
-                }
-
-                // Skip to file data
-                tarStream.Seek(376 - 512, SeekOrigin.Current);
-
-                if (fileSize > 0)
-                {
-                    var filePath = Path.Combine(extractPath, fileName);
-                    var directory = Path.GetDirectoryName(filePath);
-                    if (!string.IsNullOrEmpty(directory))
-                    {
-                        Directory.CreateDirectory(directory);
-                    }
-
-                    using (var fileStream = File.Create(filePath))
-                    {
-                        long remaining = fileSize;
-                        while (remaining > 0)
-                        {
-                            int toRead = (int)Math.Min(remaining, buffer.Length);
-                            int read = await tarStream.ReadAsync(buffer, 0, toRead);
-                            if (read == 0)
-                                break;
-                            await fileStream.WriteAsync(buffer, 0, read);
-                            remaining -= read;
-                        }
-                    }
-                }
-
-                // Skip padding to next 512-byte boundary
-                long padding = (512 - (fileSize % 512)) % 512;
-                if (padding > 0)
-                {
-                    tarStream.Seek(padding, SeekOrigin.Current);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Create tar.gz archive
-        /// </summary>
-        private async Task CreateTarGz(string sourceDir, string outputPath)
-        {
-            logger.LogDebug("Creating tar.gz archive: {output}", outputPath);
-
-            using (var fileStream = File.Create(outputPath))
-            using (var gzipStream = new GZipStream(fileStream, CompressionLevel.Optimal))
-            {
-                await CreateTar(sourceDir, gzipStream);
-            }
-        }
-
-        /// <summary>
-        /// Create tar archive
-        /// </summary>
-        private async Task CreateTar(string sourceDir, Stream tarStream)
-        {
-            var files = Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories);
-            var buffer = new byte[512];
-
-            foreach (var file in files)
-            {
-                var relativePath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
-                var fileInfo = new FileInfo(file);
-
-                // Write header
-                Array.Clear(buffer, 0, 512);
-
-                // Filename (100 bytes)
-                var nameBytes = System.Text.Encoding.ASCII.GetBytes(relativePath);
-                Array.Copy(nameBytes, 0, buffer, 0, Math.Min(nameBytes.Length, 100));
-
-                // File mode (8 bytes) - 0644
-                System.Text.Encoding.ASCII.GetBytes("0000644").CopyTo(buffer, 100);
-
-                // UID/GID (16 bytes) - 0
-                System.Text.Encoding.ASCII.GetBytes("0000000").CopyTo(buffer, 108);
-                System.Text.Encoding.ASCII.GetBytes("0000000").CopyTo(buffer, 116);
-
-                // File size (12 bytes, octal)
-                string sizeOctal = Convert.ToString(fileInfo.Length, 8).PadLeft(11, '0') + " ";
-                System.Text.Encoding.ASCII.GetBytes(sizeOctal).CopyTo(buffer, 124);
-
-                // Modification time (12 bytes, octal)
-                long unixTime = ((DateTimeOffset)fileInfo.LastWriteTimeUtc).ToUnixTimeSeconds();
-                string timeOctal = Convert.ToString(unixTime, 8).PadLeft(11, '0') + " ";
-                System.Text.Encoding.ASCII.GetBytes(timeOctal).CopyTo(buffer, 136);
-
-                // Type flag (1 byte) - regular file
-                buffer[156] = (byte)'0';
-
-                // Write header
-                await tarStream.WriteAsync(buffer, 0, 512);
-
-                // Write file content
-                using (var fileStream = File.OpenRead(file))
-                {
-                    await fileStream.CopyToAsync(tarStream);
-                }
-
-                // Write padding to 512-byte boundary
-                long padding = (512 - (fileInfo.Length % 512)) % 512;
-                if (padding > 0)
-                {
-                    Array.Clear(buffer, 0, (int)padding);
-                    await tarStream.WriteAsync(buffer, 0, (int)padding);
-                }
-            }
-
-            // Write two empty blocks at end
-            Array.Clear(buffer, 0, 512);
-            await tarStream.WriteAsync(buffer, 0, 512);
-            await tarStream.WriteAsync(buffer, 0, 512);
         }
 
         /// <summary>
