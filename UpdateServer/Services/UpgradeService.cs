@@ -178,10 +178,8 @@ namespace UpdateServer.Services
 
             if (range.MaxVersion != null)
             {
-                var max = AppVersion.Parse(range.MaxVersion); // Assuming max is inclusive or exclusive? Usually exclusive or inclusive depending on spec.
-                                                              // Doc says "Maximum client version". Let's assume inclusive for now or strictly less than next.
-                                                              // Actually, usually min is inclusive, max is inclusive.
-                if (version.CompareTo(max) > 0) return false;
+                var max = AppVersion.Parse(range.MaxVersion);
+                if (version.CompareTo(max) >= 0) return false;
             }
 
             if (range.ExcludeVersions != null && range.ExcludeVersions.Contains(version.ToString()))
