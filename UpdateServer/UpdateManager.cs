@@ -231,6 +231,12 @@ namespace UpdateServer
 
         private static string GetLatestAppFile(string appFolder, bool includePrerelease = true)
         {
+            var versionsFolder = Path.Combine(appFolder, "versions");
+            if (Directory.Exists(versionsFolder))
+            {
+                appFolder = versionsFolder;
+            }
+
             var files = Directory.EnumerateFiles(appFolder).ToList();
             if (files.Count == 0) return null;
 
@@ -322,6 +328,12 @@ namespace UpdateServer
         // Returns both the latest stable and pre-release update files for an app
         public AppUpdateInfo GetLatestUpdateInfo(string appFolder)
         {
+            var versionsFolder = Path.Combine(appFolder, "versions");
+            if (Directory.Exists(versionsFolder))
+            {
+                appFolder = versionsFolder;
+            }
+
             var files = Directory.EnumerateFiles(appFolder).ToList();
             if (files.Count == 0) return null;
 

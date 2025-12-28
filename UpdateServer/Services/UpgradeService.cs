@@ -16,8 +16,9 @@ namespace UpdateServer.Services
         private readonly CompressionService _compressionService;
         private readonly IOptionsMonitor<Dictionary<string, string>> _appFolderMapping;
         
-        // This should probably be in appsettings
-        private const string UPGRADE_ROOT_PATH = "/exports/upgrade"; 
+        // Relative path for upgrade files (consistent with UpdateManager.PREFIX_FOLDER pattern)
+        // Combined with AppDomain.CurrentDomain.BaseDirectory to get full path
+        public const string UPGRADE_FOLDER = "upgrade"; 
 
         public UpgradeService(
             ILogger<UpgradeService> logger,
@@ -229,11 +230,29 @@ namespace UpdateServer.Services
 
         private string GetUpgradeSourcePath(string appName, UpgradeManifest manifest)
         {
-            // /exports/upgrade/Box/driver-v2-upgrade/
-            // or /exports/upgrade/shared/common-driver/
+            // Follows same pattern as UpdateManager.GetFolder():
+            // - Uses relative path constant (UPGRADE_FOLDER)
+            // - Combines with AppDomain.CurrentDomain.BaseDirectory
+            // Result: /app/upgrade/Box/driver-v2-upgrade/ or /app/upgrade/shared/common-driver/
+            //
+            // Note: basePath in manifest should be from UpdateServer's perspective (/app/upgrade),
+            // not from NFS server's perspective (/exports/upgrade). If omitted, defaults to /app/upgrade.
             
-            var basePath = manifest.Storage.BasePath ?? UPGRADE_ROOT_PATH;
-            var path = manifest.Storage.Path; // e.g. "Box/driver-v2-upgrade/"
+            string basePath;
+            if (!string.IsNullOrEmpty(manifest.Storage?.BasePath))
+            {
+                // Use explicit basePath from manifest if provided
+                // Should be /app/upgrade (UpdateServer mount point), not /exports/upgrade (NFS server path)
+                basePath = manifest.Storage.BasePath;
+            }
+            else
+            {
+                // Use same pattern as UpdateManager: combine base directory with relative folder
+                // Defaults to /app/upgrade (AppDomain.CurrentDomain.BaseDirectory + "upgrade")
+                basePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, UPGRADE_FOLDER);
+            }
+            
+            var path = manifest.Storage?.Path ?? ""; // e.g. "Box/driver-v2-upgrade/"
             
             return Path.Combine(basePath, path);
         }
