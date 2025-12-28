@@ -62,6 +62,54 @@ namespace UpdateServer.Services
         }
 
         /// <summary>
+        /// Check if a specific client needs an updater update
+        /// </summary>
+        public bool IsUpdaterUpdateNeeded(string currentVersionStr)
+        {
+            if (string.IsNullOrEmpty(currentVersionStr)) return false;
+
+            var updaterFolder = updateManager.GetFolder("Updater");
+            if (updaterFolder == null) return false;
+
+            var latestUpdater = updateManager.GetLatestUpdateInfo(updaterFolder);
+            var latestVersion = latestUpdater?.LatestStable?.Version;
+
+            if (latestVersion != null)
+            {
+                var currentVersion = AppVersion.Parse(currentVersionStr);
+                if (currentVersion == null) return false;
+
+                return latestVersion.CompareTo(currentVersion) > 0;
+            }
+
+            return false;
+        }
+        
+        public UpgradeManifest? GenerateSelfUpdateManifest(string currentVersionStr)
+        {
+            if (!IsUpdaterUpdateNeeded(currentVersionStr)) return null;
+
+            var updaterFolder = updateManager.GetFolder("Updater");
+            var latestUpdater = updateManager.GetLatestUpdateInfo(updaterFolder);
+            var latestVersion = latestUpdater?.LatestStable?.Version;
+
+            if (latestVersion == null) return null;
+
+            return new UpgradeManifest
+            {
+                Id = $"updater-self-update-{latestVersion}",
+                Name = $"Updater Self-Update {latestVersion}",
+                Description = "Self-update for the Updater application",
+                Version = latestVersion.ToString(),
+                Priority = 1000, // Highest priority
+                Metadata = new Dictionary<string, object> { { "Type", "UpdaterSelfUpdate" } },
+                Files = new List<UpgradeFileParams>(), // Will be populated by PackageUpgrades
+                PostInstallScript = $"echo \"update-staged\" > .pending-update" 
+            };
+        }
+
+
+        /// <summary>
         /// Package app update with embedded updater update if needed
         /// </summary>
         public async Task<string> PackageAppUpdateWithUpdater(string appName, string appUpdatePath, string appFolderName = null)

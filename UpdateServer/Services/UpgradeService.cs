@@ -15,6 +15,7 @@ namespace UpdateServer.Services
         private readonly UpdateManager _updateManager;
         private readonly CompressionService _compressionService;
         private readonly IOptionsMonitor<Dictionary<string, string>> _appFolderMapping;
+        private readonly UpdaterUpdateService _updaterUpdateService;
         
         // Relative path for upgrade files (consistent with UpdateManager.PREFIX_FOLDER pattern)
         // Combined with AppDomain.CurrentDomain.BaseDirectory to get full path
@@ -24,15 +25,17 @@ namespace UpdateServer.Services
             ILogger<UpgradeService> logger,
             UpdateManager updateManager,
             CompressionService compressionService,
-            IOptionsMonitor<Dictionary<string, string>> appFolderMapping)
+            IOptionsMonitor<Dictionary<string, string>> appFolderMapping,
+            UpdaterUpdateService updaterUpdateService)
         {
             _logger = logger;
             _updateManager = updateManager;
             _compressionService = compressionService;
             _appFolderMapping = appFolderMapping;
+            _updaterUpdateService = updaterUpdateService;
         }
 
-        public ApplicableUpgradesResult GetApplicableUpgrades(string appName, AppVersion clientVersion, bool includePrerelease)
+        public ApplicableUpgradesResult GetApplicableUpgrades(string appName, AppVersion clientVersion, bool includePrerelease, string? updaterVersion = null)
         {
             var appFolder = _updateManager.GetFolder(appName);
             if (string.IsNullOrEmpty(appFolder))
@@ -86,6 +89,17 @@ namespace UpdateServer.Services
                 ordered.Add(appUpdateManifest);
             }
 
+            // Check if Updater Self-Update is needed
+            if (!string.IsNullOrEmpty(updaterVersion))
+            {
+                var selfUpdateManifest = _updaterUpdateService.GenerateSelfUpdateManifest(updaterVersion);
+                if (selfUpdateManifest != null)
+                {
+                    _logger.LogInformation("Injecting Updater Self-Update manifest {id}", selfUpdateManifest.Id);
+                    ordered.Add(selfUpdateManifest);
+                }
+            }
+
             var estimatedSize = ordered.Sum(u => u.Files?.Sum(f => f.Size) ?? 0);
 
             return new ApplicableUpgradesResult
@@ -96,9 +110,9 @@ namespace UpdateServer.Services
             };
         }
 
-        public async Task<string> BuildUpgradePackage(string appName, AppVersion clientVersion, bool includePrerelease)
+        public async Task<string> BuildUpgradePackage(string appName, AppVersion clientVersion, bool includePrerelease, string? updaterVersion = null)
         {
-            var result = GetApplicableUpgrades(appName, clientVersion, includePrerelease);
+            var result = GetApplicableUpgrades(appName, clientVersion, includePrerelease, updaterVersion);
             if (result == null || !result.Upgrades.Any())
             {
                 return null;
@@ -290,23 +304,7 @@ namespace UpdateServer.Services
                     if (upgrade.Metadata != null && upgrade.Metadata.ContainsKey("Type") && upgrade.Metadata["Type"].ToString() == "AppUpdate")
                     {
                         // Handle App Update - Extract from tarball
-                        // We check for stable or prerelease based on the earliest request, but actually
-                        // UpgradeManifest doesn't store 'includePrerelease' preference of the client.
-                        // However, we passed 'toVersion' which is the target version.
-                        // We should find the file that matches 'toVersion'.
-                        
-                        // For now, let's just use the same logic as GetApplicableUpgrades used -> GetUpdateFileForApp
-                        // But we need to know if we should look for prerelease.
-                        // We can infer it: if toVersion contains hyphen, it might be prerelease?
-                        // Or better, just pass 'includePrerelease' to this method?
-                        // But wait, the method signature I'm editing doesn't have it yet.
-                        // I will assume the caller passed the right version in 'toVersion'.
-                        // But GetUpdateFileForApp takes a boolean.
-                        
-                        // Actually, I should update PackageUpgrades signature first?
-                        // Or just try to find the file that matches the version. 
-                        
-                        var appUpdatePath = _updateManager.GetUpdateFileForApp(appName, includePrerelease); // Try including prerelease to find it if it is one
+                        var appUpdatePath = _updateManager.GetUpdateFileForApp(appName, includePrerelease);
                         // Ideally we should verify the version matches 'toVersion'.
                         
                         if (!string.IsNullOrEmpty(appUpdatePath) && File.Exists(appUpdatePath))
@@ -330,6 +328,44 @@ namespace UpdateServer.Services
                         else
                         {
                             _logger.LogWarning("App update file not found");
+                        }
+
+                    }
+                    else if (upgrade.Metadata != null && upgrade.Metadata.ContainsKey("Type") && upgrade.Metadata["Type"].ToString() == "UpdaterSelfUpdate")
+                    {
+                        // Handle Updater Self-Update
+                        var updaterFolder = _updateManager.GetFolder("Updater");
+                        var latestUpdater = _updateManager.GetLatestUpdateInfo(updaterFolder);
+                        var updaterFilePath = latestUpdater?.LatestStable?.FilePath;
+
+                        if (!string.IsNullOrEmpty(updaterFilePath) && File.Exists(updaterFilePath))
+                        {
+                            _logger.LogInformation("Packaging Updater Self-Update from {path}", updaterFilePath);
+                            var fileName = Path.GetFileName(updaterFilePath);
+                            File.Copy(updaterFilePath, Path.Combine(destPath, fileName), true);
+                            
+                            // Populate Files in manifest
+                            var targetDir = $"/home/hemo/updater/pending-update/updater-{upgrade.Version}";
+                            upgrade.Files = new List<UpgradeFileParams>
+                            {
+                                new UpgradeFileParams
+                                {
+                                    Path = fileName,
+                                    Target = targetDir,
+                                    Explode = true,
+                                    Size = new FileInfo(updaterFilePath).Length
+                                }
+                            };
+                            
+                            // Post install script is already set in GenerateSelfUpdateManifest but we might want to ensure it works?
+                            // It's `echo "update-staged" > .pending-update`
+                            // We need it to be executed relative to something?
+                            // The generic installer runs it.
+                        }
+                        else
+                        {
+                             _logger.LogWarning("Updater update file not found");
+                             throw new FileNotFoundException("Updater update file not found");
                         }
                     }
                     else

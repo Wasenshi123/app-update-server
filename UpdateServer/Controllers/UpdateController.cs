@@ -87,7 +87,8 @@ namespace UpdateServer.Controllers
                 return BadRequest("Invalid version format");
             }
 
-            var result = upgradeService.GetApplicableUpgrades(app, clientVersion, includePrerelease);
+            var updaterVersion = GetUpdaterVersionFromRequest(Request);
+            var result = upgradeService.GetApplicableUpgrades(app, clientVersion, includePrerelease, updaterVersion);
             if (result == null)
             {
                 return NotFound();
@@ -128,7 +129,8 @@ namespace UpdateServer.Controllers
 
             try
             {
-                var packagePath = await upgradeService.BuildUpgradePackage(app, clientVersion, includePrerelease);
+                var updaterVersion = GetUpdaterVersionFromRequest(Request);
+                var packagePath = await upgradeService.BuildUpgradePackage(app, clientVersion, includePrerelease, updaterVersion);
                 
                 if (packagePath == null)
                     return NotFound();
@@ -229,54 +231,52 @@ namespace UpdateServer.Controllers
             return etag;
         }
 
-        /// <summary>
-        /// Detect if the request is from an old updater client (version < 2.0.0)
-        /// </summary>
-        private bool IsOldUpdaterClient(Microsoft.AspNetCore.Http.HttpRequest request)
+        private string? GetUpdaterVersionFromRequest(Microsoft.AspNetCore.Http.HttpRequest request)
         {
-            // Method 1: Check User-Agent header
+            // Check User-Agent header
             var userAgent = request.Headers["User-Agent"].ToString();
             if (!string.IsNullOrEmpty(userAgent))
             {
                 var match = Regex.Match(userAgent, @"AppUpdater/(\d+\.\d+\.\d+)");
                 if (match.Success)
                 {
-                    try
-                    {
-                        var version = Version.Parse(match.Groups[1].Value);
-                        bool isOld = version < new Version(2, 0, 0);
-                        _logger.LogDebug("Detected updater version {version} from User-Agent. Is old: {isOld}", 
-                            version, isOld);
-                        return isOld;
-                    }
-                    catch
-                    {
-                        // Invalid version format
-                    }
+                    return match.Groups[1].Value;
                 }
             }
 
-            // Method 2: Check custom header
+            // Check custom header
             var updaterVersion = request.Headers["X-Updater-Version"].ToString();
             if (!string.IsNullOrEmpty(updaterVersion))
             {
+                return updaterVersion;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Detect if the request is from an old updater client (version < 2.0.0)
+        /// </summary>
+        private bool IsOldUpdaterClient(Microsoft.AspNetCore.Http.HttpRequest request)
+        {
+            var versionStr = GetUpdaterVersionFromRequest(request);
+            if (versionStr != null)
+            {
                 try
                 {
-                    var version = Version.Parse(updaterVersion);
+                    var version = Version.Parse(versionStr);
                     bool isOld = version < new Version(2, 0, 0);
-                    _logger.LogDebug("Detected updater version {version} from header. Is old: {isOld}", 
-                        version, isOld);
+                    _logger.LogDebug("Detected updater version {version}. Is old: {isOld}", version, isOld);
                     return isOld;
                 }
                 catch
                 {
-                    // Invalid version format
+                    // Invalid format
                 }
             }
 
-            // Method 3: Default - if using old endpoint, assume old updater
-            // This is the fallback if no version info available
-            _logger.LogDebug("No updater version detected. Assuming old updater (using old endpoint)");
+            // Default - if using old endpoint (which this logic is mostly used for?), or no header
+            _logger.LogDebug("No updater version detected. Assuming old updater.");
             return true;
         }
 
