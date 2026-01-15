@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
@@ -312,12 +312,25 @@ namespace UpdateServer.Controllers
         /// </summary>
         private async Task<IActionResult> ServePackage(string packagePath)
         {
+            if (string.IsNullOrEmpty(packagePath) || !System.IO.File.Exists(packagePath))
+            {
+                _logger.LogError("Package file not found: {path}", packagePath);
+                return NotFound("Package file not found");
+            }
+
             var fileInfo = new FileInfo(packagePath);
-            var fileStream = new FileStream(packagePath, FileMode.Open, FileAccess.Read);
-            var filename = Path.GetFileName(packagePath);
+            
+            if (fileInfo.Length == 0)
+            {
+                _logger.LogError("Package file is empty: {path}", packagePath);
+                return Problem(detail: "Package file is empty", title: "Invalid Package");
+            }
 
             _logger.LogInformation("Serving combined package: {file} ({size} bytes)", 
-                filename, fileInfo.Length);
+                Path.GetFileName(packagePath), fileInfo.Length);
+
+            var fileStream = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var filename = Path.GetFileName(packagePath);
 
             var result = File(fileStream, "application/gzip", filename);
             result.LastModified = new DateTimeOffset(fileInfo.LastWriteTimeUtc);

@@ -340,9 +340,35 @@ namespace UpdateServer.Services
                         {
                             _logger.LogInformation("Packaging Updater Self-Update from {path}", updaterFilePath);
                             var fileName = Path.GetFileName(updaterFilePath);
-                            File.Copy(updaterFilePath, Path.Combine(destPath, fileName), true);
+                            var destFilePath = Path.Combine(destPath, fileName);
                             
-                            // Populate Files in manifest
+                            // Get file size before copying to verify source file
+                            var sourceFileInfo = new FileInfo(updaterFilePath);
+                            var sourceSize = sourceFileInfo.Length;
+                            _logger.LogInformation("Source updater file size: {size} bytes", sourceSize);
+                            
+                            // Copy the file
+                            File.Copy(updaterFilePath, destFilePath, true);
+                            
+                            // Verify the copied file exists and has correct size
+                            var destFileInfo = new FileInfo(destFilePath);
+                            if (!destFileInfo.Exists)
+                            {
+                                var errorMsg = $"Failed to copy updater file: destination file does not exist at {destFilePath}";
+                                _logger.LogError(errorMsg);
+                                throw new FileNotFoundException(errorMsg);
+                            }
+                            
+                            if (destFileInfo.Length != sourceSize)
+                            {
+                                var errorMsg = $"File copy size mismatch: source={sourceSize} bytes, destination={destFileInfo.Length} bytes";
+                                _logger.LogError(errorMsg);
+                                throw new InvalidOperationException(errorMsg);
+                            }
+                            
+                            _logger.LogInformation("Successfully copied updater file: {fileName} ({size} bytes)", fileName, destFileInfo.Length);
+                            
+                            // Populate Files in manifest - use the copied file's size for accuracy
                             var targetDir = $"/home/hemo/updater/pending-update/updater-{upgrade.Version}";
                             upgrade.Files = new List<UpgradeFileParams>
                             {
@@ -351,7 +377,7 @@ namespace UpdateServer.Services
                                     Path = fileName,
                                     Target = targetDir,
                                     Explode = true,
-                                    Size = new FileInfo(updaterFilePath).Length
+                                    Size = destFileInfo.Length
                                 }
                             };
                             
