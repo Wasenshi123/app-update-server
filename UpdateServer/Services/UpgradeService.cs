@@ -124,7 +124,53 @@ namespace UpdateServer.Services
             }
 
             var upgradePackageId = GenerateCacheKey(appName, clientVersion, result.Upgrades);
-            var cachePath = Path.Combine(_updateManager.GetFolder(appName), "cache", $"{upgradePackageId}.tar.gz");
+            
+            // Try to use cache in app folder first, fall back to writable cache location if needed
+            var appFolder = _updateManager.GetFolder(appName);
+            string cachePath = null;
+            
+            if (!string.IsNullOrEmpty(appFolder))
+            {
+                var preferredCachePath = Path.Combine(appFolder, "cache", $"{upgradePackageId}.tar.gz");
+                
+                // Check if we can write to the app folder by trying to create the cache directory
+                var cacheDir = Path.GetDirectoryName(preferredCachePath);
+                if (!string.IsNullOrEmpty(cacheDir))
+                {
+                    try
+                    {
+                        if (!Directory.Exists(cacheDir))
+                        {
+                            Directory.CreateDirectory(cacheDir);
+                        }
+                        // Test write permission by checking if we can create a file
+                        var testFile = Path.Combine(cacheDir, ".write-test");
+                        try
+                        {
+                            File.WriteAllText(testFile, "test");
+                            File.Delete(testFile);
+                            cachePath = preferredCachePath;
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            _logger.LogWarning("Cannot write to app folder cache directory {cacheDir}, using fallback location", cacheDir);
+                        }
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        _logger.LogWarning("Cannot create cache directory in app folder {cacheDir}, using fallback location", cacheDir);
+                    }
+                }
+            }
+            
+            // Fallback to writable cache location (under base directory or temp)
+            if (string.IsNullOrEmpty(cachePath))
+            {
+                var fallbackCacheDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache", appName);
+                Directory.CreateDirectory(fallbackCacheDir);
+                cachePath = Path.Combine(fallbackCacheDir, $"{upgradePackageId}.tar.gz");
+                _logger.LogInformation("Using fallback cache location: {cachePath}", cachePath);
+            }
 
             if (File.Exists(cachePath))
             {
@@ -281,24 +327,40 @@ namespace UpdateServer.Services
         private async Task<string> PackageUpgrades(string appName, List<UpgradeManifest> upgrades, string outputPath, string fromVersion, string toVersion, bool includePrerelease)
         {
             // Ensure cache directory exists early (fail fast if permissions are insufficient)
-            try
+            var cacheDir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(cacheDir))
             {
-                var cacheDir = Path.GetDirectoryName(outputPath);
-                if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
+                try
                 {
-                    _logger.LogInformation("Creating cache directory: {cacheDir}", cacheDir);
-                    Directory.CreateDirectory(cacheDir);
+                    if (!Directory.Exists(cacheDir))
+                    {
+                        _logger.LogInformation("Creating cache directory: {cacheDir}", cacheDir);
+                        Directory.CreateDirectory(cacheDir);
+                    }
+                    
+                    // Verify write permissions by attempting to create a test file
+                    var testFile = Path.Combine(cacheDir, ".write-test");
+                    try
+                    {
+                        File.WriteAllText(testFile, "test");
+                        File.Delete(testFile);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        _logger.LogError("Cache directory exists but is not writable: {cacheDir}", cacheDir);
+                        throw new UnauthorizedAccessException($"Cache directory exists but is not writable: {cacheDir}. Please ensure the application has write permissions.");
+                    }
                 }
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                _logger.LogError(ex, "Failed to create cache directory. Ensure the application has write permissions to the cache directory path.");
-                throw new UnauthorizedAccessException($"Access denied when creating cache directory: {Path.GetDirectoryName(outputPath)}. Please ensure the application has write permissions.", ex);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unexpected error creating cache directory: {cacheDir}", Path.GetDirectoryName(outputPath));
-                throw;
+                catch (UnauthorizedAccessException)
+                {
+                    _logger.LogError("Failed to create cache directory. Ensure the application has write permissions to the cache directory path: {cacheDir}", cacheDir);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unexpected error creating cache directory: {cacheDir}", cacheDir);
+                    throw;
+                }
             }
 
             var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -446,7 +508,7 @@ namespace UpdateServer.Services
                 
                 // Cache directory should already exist (created at start of method)
                 // Double-check it exists before writing
-                var cacheDir = Path.GetDirectoryName(outputPath);
+                cacheDir = Path.GetDirectoryName(outputPath);
                 if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
                 {
                     _logger.LogWarning("Cache directory was removed after creation. Recreating: {cacheDir}", cacheDir);
