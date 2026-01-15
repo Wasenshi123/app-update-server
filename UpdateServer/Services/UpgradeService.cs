@@ -484,10 +484,43 @@ namespace UpdateServer.Services
                                 }
                             };
                             
-                            // Post install script is already set in GenerateSelfUpdateManifest but we might want to ensure it works?
-                            // It's `echo "update-staged" > .pending-update`
-                            // We need it to be executed relative to something?
-                            // The generic installer runs it.
+                            // Create post-install script file
+                            // The script creates .pending-update marker in the parent directory of the destination path
+                            // Destination path is /home/hemo/updater/pending-update/updater-{version}
+                            // So .pending-update should be created in /home/hemo/updater/pending-update/
+                            var postInstallScriptPath = Path.Combine(destPath, "post-install.sh");
+                            var postInstallScriptContent = @"#!/bin/bash
+# Post-install script for Updater Self-Update
+# Creates .pending-update marker in the parent directory of the destination path
+# Destination path is passed as first argument: /home/hemo/updater/pending-update/updater-{version}
+# We need to create .pending-update in /home/hemo/updater/pending-update/
+
+DEST_PATH=""$1""
+PARENT_DIR=$(dirname ""$DEST_PATH"")
+MARKER_FILE=""$PARENT_DIR/.pending-update""
+
+echo ""Creating update marker: $MARKER_FILE""
+echo ""update-staged"" > ""$MARKER_FILE""
+
+if [ $? -eq 0 ]; then
+    echo ""Successfully created update marker""
+else
+    echo ""ERROR: Failed to create update marker"" >&2
+    exit 1
+fi
+";
+                            // Ensure Linux line endings (LF only, not CRLF) for shell script
+                            var normalizedScriptContent = postInstallScriptContent.Replace("\r\n", "\n").Replace("\r", "\n");
+                            File.WriteAllText(postInstallScriptPath, normalizedScriptContent, new System.Text.UTF8Encoding(false));
+                            
+                            // Make script executable on Linux
+                            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux))
+                            {
+                                var chmodProcess = System.Diagnostics.Process.Start("chmod", $"+x {postInstallScriptPath}");
+                                chmodProcess?.WaitForExit();
+                            }
+                            
+                            _logger.LogInformation("Created post-install.sh script for Updater Self-Update");
                         }
                         else
                         {

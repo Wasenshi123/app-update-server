@@ -104,7 +104,7 @@ namespace UpdateServer.Services
                 Priority = 1000, // Highest priority
                 Metadata = new Dictionary<string, object> { { "Type", "UpdaterSelfUpdate" } },
                 Files = new List<UpgradeFileParams>(), // Will be populated by PackageUpgrades
-                PostInstallScript = $"echo \"update-staged\" > .pending-update",
+                PostInstallScript = "post-install.sh", // Script file that will be created in the upgrade package
                 AppliesTo = new VersionRange
                 {
                     // Apply to all versions (no min/max restrictions for self-update)
