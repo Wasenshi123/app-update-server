@@ -280,6 +280,27 @@ namespace UpdateServer.Services
 
         private async Task<string> PackageUpgrades(string appName, List<UpgradeManifest> upgrades, string outputPath, string fromVersion, string toVersion, bool includePrerelease)
         {
+            // Ensure cache directory exists early (fail fast if permissions are insufficient)
+            try
+            {
+                var cacheDir = Path.GetDirectoryName(outputPath);
+                if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
+                {
+                    _logger.LogInformation("Creating cache directory: {cacheDir}", cacheDir);
+                    Directory.CreateDirectory(cacheDir);
+                }
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogError(ex, "Failed to create cache directory. Ensure the application has write permissions to the cache directory path.");
+                throw new UnauthorizedAccessException($"Access denied when creating cache directory: {Path.GetDirectoryName(outputPath)}. Please ensure the application has write permissions.", ex);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error creating cache directory: {cacheDir}", Path.GetDirectoryName(outputPath));
+                throw;
+            }
+
             var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
             Directory.CreateDirectory(tempDir);
 
@@ -423,8 +444,14 @@ namespace UpdateServer.Services
                         JsonSerializer.Serialize(upgrade, UpdateServerJsonContext.Default.UpgradeManifest));
                 }
                 
-                // Ensure cache directory exists
-                Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+                // Cache directory should already exist (created at start of method)
+                // Double-check it exists before writing
+                var cacheDir = Path.GetDirectoryName(outputPath);
+                if (!string.IsNullOrEmpty(cacheDir) && !Directory.Exists(cacheDir))
+                {
+                    _logger.LogWarning("Cache directory was removed after creation. Recreating: {cacheDir}", cacheDir);
+                    Directory.CreateDirectory(cacheDir);
+                }
 
                 await _compressionService.CreateTarGz(upgradePkgDir, outputPath);
 
