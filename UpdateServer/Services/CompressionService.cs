@@ -145,21 +145,58 @@ namespace UpdateServer.Services
 
                 Array.Clear(buffer, 0, 512);
 
+                // File name (100 bytes, offset 0)
                 var nameBytes = System.Text.Encoding.ASCII.GetBytes(relativePath);
                 Array.Copy(nameBytes, 0, buffer, 0, Math.Min(nameBytes.Length, 100));
 
-                System.Text.Encoding.ASCII.GetBytes("0000644").CopyTo(buffer, 100);
-                System.Text.Encoding.ASCII.GetBytes("0000000").CopyTo(buffer, 108);
-                System.Text.Encoding.ASCII.GetBytes("0000000").CopyTo(buffer, 116);
+                // File mode (8 bytes, offset 100) - must be 8 bytes with space or null terminator
+                var modeBytes = System.Text.Encoding.ASCII.GetBytes("0000644 ");
+                Array.Copy(modeBytes, 0, buffer, 100, Math.Min(modeBytes.Length, 8));
 
+                // Owner user ID (8 bytes, offset 108)
+                var uidBytes = System.Text.Encoding.ASCII.GetBytes("0000000 ");
+                Array.Copy(uidBytes, 0, buffer, 108, Math.Min(uidBytes.Length, 8));
+
+                // Owner group ID (8 bytes, offset 116)
+                var gidBytes = System.Text.Encoding.ASCII.GetBytes("0000000 ");
+                Array.Copy(gidBytes, 0, buffer, 116, Math.Min(gidBytes.Length, 8));
+
+                // File size (12 bytes, offset 124) - octal with space
                 string sizeOctal = Convert.ToString(fileInfo.Length, 8).PadLeft(11, '0') + " ";
                 System.Text.Encoding.ASCII.GetBytes(sizeOctal).CopyTo(buffer, 124);
 
+                // Modification time (12 bytes, offset 136) - octal with space
                 long unixTime = ((DateTimeOffset)fileInfo.LastWriteTimeUtc).ToUnixTimeSeconds();
                 string timeOctal = Convert.ToString(unixTime, 8).PadLeft(11, '0') + " ";
                 System.Text.Encoding.ASCII.GetBytes(timeOctal).CopyTo(buffer, 136);
 
-                buffer[156] = (byte)'0'; // Type flag
+                // Type flag (1 byte, offset 156) - '0' for regular file
+                buffer[156] = (byte)'0';
+
+                // USTAR magic (6 bytes, offset 257)
+                System.Text.Encoding.ASCII.GetBytes("ustar").CopyTo(buffer, 257);
+
+                // USTAR version (2 bytes, offset 263)
+                System.Text.Encoding.ASCII.GetBytes("00").CopyTo(buffer, 263);
+
+                // Calculate checksum (8 bytes, offset 148)
+                // Checksum is sum of all bytes, with checksum field itself treated as spaces (0x20)
+                int checksum = 0;
+                for (int i = 0; i < 512; i++)
+                {
+                    if (i >= 148 && i < 156)
+                    {
+                        // Treat checksum field as spaces during calculation
+                        checksum += 0x20;
+                    }
+                    else
+                    {
+                        checksum += buffer[i];
+                    }
+                }
+                // Write checksum as octal string (6 digits + space + null)
+                string checksumStr = Convert.ToString(checksum, 8).PadLeft(6, '0') + " \0";
+                System.Text.Encoding.ASCII.GetBytes(checksumStr).CopyTo(buffer, 148);
 
                 await tarStream.WriteAsync(buffer, 0, 512);
 
