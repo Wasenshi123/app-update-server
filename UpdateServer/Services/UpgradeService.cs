@@ -144,7 +144,7 @@ namespace UpdateServer.Services
                 try
                 {
                     var json = File.ReadAllText(file);
-                    var manifest = JsonSerializer.Deserialize<UpgradeManifest>(json);
+                    var manifest = JsonSerializer.Deserialize(json, UpdateServerJsonContext.Default.UpgradeManifest);
                     if (manifest != null)
                     {
                         manifests.Add(manifest);
@@ -289,7 +289,7 @@ namespace UpdateServer.Services
 
                 File.WriteAllText(
                     Path.Combine(upgradePkgDir, "package-manifest.json"), 
-                    JsonSerializer.Serialize(packageManifest, new JsonSerializerOptions { WriteIndented = true }));
+                    JsonSerializer.Serialize(packageManifest, UpdateServerJsonContext.Default.UpgradePackageManifest));
 
                 var upgradesDir = Path.Combine(upgradePkgDir, "upgrades");
                 Directory.CreateDirectory(upgradesDir);
@@ -385,7 +385,7 @@ namespace UpdateServer.Services
                     // Also write the manifest itself so client knows what to do
                     File.WriteAllText(
                         Path.Combine(destPath, "manifest.json"), 
-                        JsonSerializer.Serialize(upgrade, new JsonSerializerOptions { WriteIndented = true }));
+                        JsonSerializer.Serialize(upgrade, UpdateServerJsonContext.Default.UpgradeManifest));
                 }
                 
                 // Ensure cache directory exists

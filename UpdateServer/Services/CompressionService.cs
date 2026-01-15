@@ -72,10 +72,10 @@ namespace UpdateServer.Services
                             remaining -= read;
                         }
                         // Skip padding and continue to next entry
-                        long padding = (512 - (fileSize % 512)) % 512;
-                        if (padding > 0)
+                        long skipPadding = (512 - (fileSize % 512)) % 512;
+                        if (skipPadding > 0)
                         {
-                            remaining = padding;
+                            remaining = skipPadding;
                             while (remaining > 0)
                             {
                                 int toRead = (int)Math.Min(remaining, buffer.Length);
