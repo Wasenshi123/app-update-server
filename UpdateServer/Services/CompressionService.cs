@@ -46,11 +46,47 @@ namespace UpdateServer.Services
                 if (!long.TryParse(sizeStr, System.Globalization.NumberStyles.Integer, null, out long fileSize))
                     fileSize = 0;
 
-                tarStream.Seek(376 - 512, SeekOrigin.Current);
+                // After reading the 512-byte header, we're already positioned correctly to read the file content
+                // No need to seek (which doesn't work with GZipStream anyway)
 
                 if (fileSize > 0)
                 {
+                    // Sanitize filename to prevent path traversal attacks
+                    fileName = fileName.Replace('\\', '/').TrimStart('/');
                     var filePath = Path.Combine(extractPath, fileName);
+                    
+                    // Validate that the resolved path is still within extractPath
+                    var fullExtractPath = Path.GetFullPath(extractPath);
+                    var fullFilePath = Path.GetFullPath(filePath);
+                    if (!fullFilePath.StartsWith(fullExtractPath + Path.DirectorySeparatorChar) && 
+                        fullFilePath != fullExtractPath)
+                    {
+                        _logger.LogWarning("Skipping file with suspicious path: {fileName}", fileName);
+                        // Skip this file and read past it
+                        long remaining = fileSize;
+                        while (remaining > 0)
+                        {
+                            int toRead = (int)Math.Min(remaining, buffer.Length);
+                            int read = await tarStream.ReadAsync(buffer, 0, toRead);
+                            if (read == 0) break;
+                            remaining -= read;
+                        }
+                        // Skip padding and continue to next entry
+                        long padding = (512 - (fileSize % 512)) % 512;
+                        if (padding > 0)
+                        {
+                            remaining = padding;
+                            while (remaining > 0)
+                            {
+                                int toRead = (int)Math.Min(remaining, buffer.Length);
+                                int read = await tarStream.ReadAsync(buffer, 0, toRead);
+                                if (read == 0) break;
+                                remaining -= read;
+                            }
+                        }
+                        continue;
+                    }
+                    
                     var directory = Path.GetDirectoryName(filePath);
                     if (!string.IsNullOrEmpty(directory))
                         Directory.CreateDirectory(directory);
@@ -69,9 +105,20 @@ namespace UpdateServer.Services
                     }
                 }
 
+                // Skip padding to next 512-byte boundary
                 long padding = (512 - (fileSize % 512)) % 512;
                 if (padding > 0)
-                    tarStream.Seek(padding, SeekOrigin.Current);
+                {
+                    // Read and discard padding bytes instead of seeking
+                    long remaining = padding;
+                    while (remaining > 0)
+                    {
+                        int toRead = (int)Math.Min(remaining, buffer.Length);
+                        int read = await tarStream.ReadAsync(buffer, 0, toRead);
+                        if (read == 0) break;
+                        remaining -= read;
+                    }
+                }
             }
         }
 
