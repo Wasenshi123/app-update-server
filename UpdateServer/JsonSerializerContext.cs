@@ -13,6 +13,11 @@ namespace UpdateServer
     [JsonSerializable(typeof(UpgradeFileParams))]
     [JsonSerializable(typeof(UpgradeChecksum))]
     [JsonSerializable(typeof(Dictionary<string, object>))]
+    [JsonSerializable(typeof(string))]
+    [JsonSerializable(typeof(int))]
+    [JsonSerializable(typeof(long))]
+    [JsonSerializable(typeof(bool))]
+    [JsonSerializable(typeof(double))]
     public partial class UpdateServerJsonContext : JsonSerializerContext
     {
     }
