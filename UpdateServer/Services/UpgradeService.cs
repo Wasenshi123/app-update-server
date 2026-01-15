@@ -83,7 +83,12 @@ namespace UpdateServer.Services
                     Version = latestVersion.ToString(),
                     Priority = 100, // High priority
                     Files = new List<UpgradeFileParams>(), // Will be populated during packaging or handled specially
-                    Metadata = new Dictionary<string, object> { { "Type", "AppUpdate" } }
+                    Metadata = new Dictionary<string, object> { { "Type", "AppUpdate" } },
+                    AppliesTo = new VersionRange
+                    {
+                        // Apply to all versions up to the target version
+                        MaxVersion = latestVersion.ToString()
+                    }
                 };
                 
                 ordered.Add(appUpdateManifest);
@@ -127,7 +132,11 @@ namespace UpdateServer.Services
                 return cachePath;
             }
 
-            return await PackageUpgrades(appName, result.Upgrades, cachePath, result.Upgrades.First().AppliesTo.MinVersion, result.TargetVersion, includePrerelease);
+            // Get fromVersion - use AppliesTo.MinVersion if available, otherwise use clientVersion
+            var firstUpgrade = result.Upgrades.First();
+            var fromVersion = firstUpgrade.AppliesTo?.MinVersion ?? clientVersion.ToString();
+            
+            return await PackageUpgrades(appName, result.Upgrades, cachePath, fromVersion, result.TargetVersion, includePrerelease);
         }
 
         private List<UpgradeManifest> LoadManifests(string appFolder)
