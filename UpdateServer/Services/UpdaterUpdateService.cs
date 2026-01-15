@@ -196,7 +196,9 @@ namespace UpdateServer.Services
                 // Create run.sh script to extract updater to correct place
                 var runScriptPath = Path.Combine(upgradeDir, "run.sh");
                 var runScriptContent = GenerateRunScript("updater-new.tar.gz", appFolderName, hasBootstrap, hasSetup);
-                File.WriteAllText(runScriptPath, runScriptContent);
+                // Ensure Linux line endings (LF only, not CRLF) for shell script
+                var normalizedContent = runScriptContent.Replace("\r\n", "\n").Replace("\r", "\n");
+                File.WriteAllText(runScriptPath, normalizedContent, new System.Text.UTF8Encoding(false));
                 
                 // Make run.sh executable
                 if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux))

@@ -5,8 +5,8 @@
     <UserSecretsId>949df455-7ffd-4f10-97df-28ccf1cbf14c</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerfileContext>.</DockerfileContext>
-    <AssemblyVersion>2.0.1</AssemblyVersion>
-    <FileVersion>2.0.1</FileVersion>
+    <AssemblyVersion>2.0.2</AssemblyVersion>
+    <FileVersion>2.0.2</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
