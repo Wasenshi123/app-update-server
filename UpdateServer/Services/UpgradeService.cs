@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -290,9 +292,18 @@ namespace UpdateServer.Services
 
         private string GenerateCacheKey(string appName, AppVersion clientVersion, List<UpgradeManifest> upgrades)
         {
-            // Simple hash of upgrade IDs
+            // Generate stable hash of upgrade IDs using SHA256
+            // This ensures the cache key is consistent across application restarts
             var ids = string.Join("-", upgrades.Select(u => u.Id).OrderBy(x => x));
-            return $"upgrade-{clientVersion}-{ids.GetHashCode():X}";
+            var input = $"{appName}-{clientVersion}-{ids}";
+            
+            using (var sha256 = SHA256.Create())
+            {
+                var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(input));
+                // Use first 16 bytes (32 hex chars) for a reasonable filename length
+                var hashString = BitConverter.ToString(hashBytes, 0, 16).Replace("-", "").ToLowerInvariant();
+                return $"upgrade-{clientVersion}-{hashString}";
+            }
         }
 
         private string GetUpgradeSourcePath(string appName, UpgradeManifest manifest)
