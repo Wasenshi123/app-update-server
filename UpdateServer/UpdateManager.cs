@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
@@ -232,9 +232,14 @@ namespace UpdateServer
         private static string GetLatestAppFile(string appFolder, bool includePrerelease = true)
         {
             var versionsFolder = Path.Combine(appFolder, "versions");
+            // Only use versions folder if it exists AND has files
             if (Directory.Exists(versionsFolder))
             {
-                appFolder = versionsFolder;
+                var versionFiles = Directory.EnumerateFiles(versionsFolder).ToList();
+                if (versionFiles.Count > 0)
+                {
+                    appFolder = versionsFolder;
+                }
             }
 
             var files = Directory.EnumerateFiles(appFolder).ToList();
@@ -329,9 +334,14 @@ namespace UpdateServer
         public AppUpdateInfo GetLatestUpdateInfo(string appFolder)
         {
             var versionsFolder = Path.Combine(appFolder, "versions");
+            // Only use versions folder if it exists AND has files
             if (Directory.Exists(versionsFolder))
             {
-                appFolder = versionsFolder;
+                var versionFiles = Directory.EnumerateFiles(versionsFolder).ToList();
+                if (versionFiles.Count > 0)
+                {
+                    appFolder = versionsFolder;
+                }
             }
 
             var files = Directory.EnumerateFiles(appFolder).ToList();

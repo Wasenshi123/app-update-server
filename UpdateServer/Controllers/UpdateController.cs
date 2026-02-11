@@ -150,11 +150,38 @@ namespace UpdateServer.Controllers
             // Detect if this is an old updater client
             bool isOldUpdater = IsOldUpdaterClient(Request);
             
+            string appFolder = manager.GetFolder(app);
+            if (appFolder == null)
+            {
+                _logger.LogWarning("App folder not found for app: {app}. Check AppNames configuration and ensure the folder exists.", app);
+                return NotFound(new { 
+                    error = "App not found", 
+                    app = app, 
+                    message = $"No folder configured for app '{app}'. Please check AppNames configuration in appsettings.json and ensure the folder exists in the apps directory." 
+                });
+            }
+            
+            if (!Directory.Exists(appFolder))
+            {
+                _logger.LogWarning("App folder does not exist: {appFolder} for app: {app}", appFolder, app);
+                return NotFound(new { 
+                    error = "App folder not found", 
+                    app = app, 
+                    folder = appFolder,
+                    message = $"The folder '{appFolder}' does not exist. Please ensure the app files are deployed to this location." 
+                });
+            }
+            
             string localFilePath = manager.GetUpdateFileForApp(app, includePrerelease);
             if (string.IsNullOrEmpty(localFilePath))
             {
-                _logger.LogError("No update file found for app: {app}", app);
-                return NotFound();
+                _logger.LogError("No update file found for app: {app} in folder: {appFolder}", app, appFolder);
+                return NotFound(new { 
+                    error = "No update file found", 
+                    app = app, 
+                    folder = appFolder,
+                    message = $"No update files found in '{appFolder}'. Please ensure update files are present and follow the naming pattern: app-version.exe or app-version.tar.gz" 
+                });
             }
 
             if (isOldUpdater)
