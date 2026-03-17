@@ -219,7 +219,10 @@ namespace UpdateServer.Controllers
         }
 
         [HttpGet("{app}/latest-info")]
-        public IActionResult GetLatestInfo(string app, [FromQuery] bool includePreRelease = false)
+        public IActionResult GetLatestInfo(
+            string app,
+            [FromQuery] bool? includePrerelease = null,
+            [FromQuery] bool? includePreRelease = null)
         {
             string appFolder = manager.GetFolder(app);
             if (appFolder == null)
@@ -234,6 +237,8 @@ namespace UpdateServer.Controllers
                 return NotFound();
             }
 
+            var includePre = includePrerelease ?? includePreRelease ?? false;
+
             // Return a simplified DTO for the client
             return Ok(new
             {
@@ -243,7 +248,7 @@ namespace UpdateServer.Controllers
                     file = Path.GetFileName(info.LatestStable.FilePath),
                     lastModified = info.LatestStable.LastModified
                 },
-                prerelease = includePreRelease && info.LatestPreRelease != null ? new
+                prerelease = includePre && info.LatestPreRelease != null ? new
                 {
                     version = info.LatestPreRelease.Version?.ToString(),
                     file = Path.GetFileName(info.LatestPreRelease.FilePath),
