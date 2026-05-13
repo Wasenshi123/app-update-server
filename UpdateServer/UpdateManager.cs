@@ -208,7 +208,8 @@ namespace UpdateServer
 
             logger.LogInformation("Checking modified & checksum..");
 
-            if (latest.LastWriteTimeUtc.TrimMilliseconds() > check.Modified.Value.UtcDateTime)
+            if (check.Modified.HasValue &&
+                latest.LastWriteTimeUtc.TrimMilliseconds() > check.Modified.Value.UtcDateTime)
             {
                 logger.LogInformation("File on server is newer.");
                 return false;
