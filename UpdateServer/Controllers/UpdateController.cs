@@ -145,7 +145,7 @@ namespace UpdateServer.Controllers
         }
 
         [HttpGet("{app}/download")]
-        public async Task<IActionResult> DownloadFile(string app, [FromQuery] bool includePrerelease = true)
+        public async Task<IActionResult> DownloadFile(string app, [FromQuery] bool includePrerelease = false)
         {
             // Detect if this is an old updater client
             bool isOldUpdater = IsOldUpdaterClient(Request);

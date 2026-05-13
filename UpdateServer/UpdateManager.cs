@@ -157,7 +157,7 @@ namespace UpdateServer
             return appFolder;
         }
 
-        public string GetUpdateFileForApp(string appName, bool includePrerelease = true)
+        public string GetUpdateFileForApp(string appName, bool includePrerelease = false)
         {
             var baseAppPath = GetFolder(appName);
             if (string.IsNullOrWhiteSpace(baseAppPath))
@@ -230,7 +230,7 @@ namespace UpdateServer
             return CheckVersion(appFolder, check, true);
         }
 
-        private static string GetLatestAppFile(string appFolder, bool includePrerelease = true)
+        private static string GetLatestAppFile(string appFolder, bool includePrerelease = false)
         {
             var versionsFolder = Path.Combine(appFolder, "versions");
             // Only use versions folder if it exists AND has files
