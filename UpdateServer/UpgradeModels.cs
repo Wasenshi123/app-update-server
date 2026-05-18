@@ -154,6 +154,24 @@ namespace UpdateServer
 
         [JsonPropertyName("requiresDownload")]
         public bool RequiresDownload { get; set; }
+
+        [JsonPropertyName("selfUpdate")]
+        public SelfUpdateCheckInfo SelfUpdate { get; set; }
+    }
+
+    public class SelfUpdateCheckInfo
+    {
+        [JsonPropertyName("available")]
+        public bool Available { get; set; }
+
+        [JsonPropertyName("currentVersion")]
+        public string CurrentVersion { get; set; }
+
+        [JsonPropertyName("targetVersion")]
+        public string TargetVersion { get; set; }
+
+        [JsonPropertyName("packageFile")]
+        public string PackageFile { get; set; }
     }
 
     public class UpgradeSummary

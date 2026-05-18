@@ -37,7 +37,12 @@ namespace UpdateServer.Services
             _updaterUpdateService = updaterUpdateService;
         }
 
-        public ApplicableUpgradesResult GetApplicableUpgrades(string appName, AppVersion clientVersion, bool includePrerelease, string? updaterVersion = null)
+        public ApplicableUpgradesResult GetApplicableUpgrades(
+            string appName,
+            AppVersion clientVersion,
+            bool includePrerelease,
+            string? updaterVersion = null,
+            bool includeSelfUpdate = true)
         {
             var appFolder = _updateManager.GetFolder(appName);
             if (string.IsNullOrEmpty(appFolder))
@@ -97,7 +102,7 @@ namespace UpdateServer.Services
             }
 
             // Check if Updater Self-Update is needed
-            if (!string.IsNullOrEmpty(updaterVersion))
+            if (includeSelfUpdate && !string.IsNullOrEmpty(updaterVersion))
             {
                 var selfUpdateManifest = _updaterUpdateService.GenerateSelfUpdateManifest(updaterVersion);
                 if (selfUpdateManifest != null)
@@ -117,9 +122,14 @@ namespace UpdateServer.Services
             };
         }
 
-        public async Task<string> BuildUpgradePackage(string appName, AppVersion clientVersion, bool includePrerelease, string? updaterVersion = null)
+        public async Task<string> BuildUpgradePackage(
+            string appName,
+            AppVersion clientVersion,
+            bool includePrerelease,
+            string? updaterVersion = null,
+            bool includeSelfUpdate = true)
         {
-            var result = GetApplicableUpgrades(appName, clientVersion, includePrerelease, updaterVersion);
+            var result = GetApplicableUpgrades(appName, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate);
             if (result == null || !result.Upgrades.Any())
             {
                 return null;

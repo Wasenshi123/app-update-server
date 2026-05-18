@@ -68,6 +68,18 @@ namespace UpdateServer.Controllers
 
             bool upToDate = isOldUpdater ? false : manager.CheckVersion(appFolder, check, includePrerelease);
 
+            var includeSelfUpdate = check?.IncludeSelfUpdate ?? true;
+            if (upToDate && includeSelfUpdate && !isOldUpdater)
+            {
+                var updaterVersion = GetUpdaterVersionFromRequest(Request);
+                if (!string.IsNullOrEmpty(updaterVersion)
+                    && updaterUpdateService.IsUpdaterUpdateNeeded(updaterVersion))
+                {
+                    _logger.LogInformation("{app} app is up to date but updater self-update is available", app);
+                    upToDate = false;
+                }
+            }
+
             _logger.LogInformation("{app} is update to date: {upToDate}", app, upToDate);
 
             return Ok(upToDate);
@@ -87,24 +99,35 @@ namespace UpdateServer.Controllers
                 return BadRequest("Invalid version format");
             }
 
+            var includeSelfUpdate = request.IncludeSelfUpdate ?? true;
             var updaterVersion = GetUpdaterVersionFromRequest(Request);
-            var result = upgradeService.GetApplicableUpgrades(app, clientVersion, includePrerelease, updaterVersion);
+            var result = upgradeService.GetApplicableUpgrades(
+                app, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate);
             if (result == null)
             {
                 return NotFound();
             }
 
-            // If no upgrades found, returning up-to-date or similar
-            if (result.Upgrades.Count == 0)
+            var selfUpdate = includeSelfUpdate
+                ? updaterUpdateService.GetSelfUpdateCheckInfo(updaterVersion, includePrerelease)
+                : null;
+
+            if (result.Upgrades.Count == 0 && selfUpdate?.Available != true)
             {
-                // Return 204 No Content to indicate up to date, or empty list
-                // Design doc says: "Result: No upgrades needed, returns 204 No Content"
                 return NoContent();
             }
 
-            return Ok(new UpgradeInfoWrapper
+            return Ok(BuildUpgradeInfoResponse(request.Version, result, selfUpdate));
+        }
+
+        private static UpgradeInfoWrapper BuildUpgradeInfoResponse(
+            string currentVersion,
+            ApplicableUpgradesResult result,
+            SelfUpdateCheckInfo selfUpdate)
+        {
+            return new UpgradeInfoWrapper
             {
-                CurrentVersion = request.Version,
+                CurrentVersion = currentVersion,
                 TargetVersion = result.TargetVersion,
                 Upgrades = result.Upgrades.Select(u => new UpgradeSummary
                 {
@@ -113,12 +136,17 @@ namespace UpdateServer.Controllers
                     Priority = u.Priority
                 }).ToList(),
                 PackageSize = result.EstimatedSize,
-                RequiresDownload = true
-            });
+                RequiresDownload = true,
+                SelfUpdate = selfUpdate
+            };
         }
 
         [HttpGet("{app}/download-upgrade")]
-        public async Task<IActionResult> DownloadUpgrade(string app, [FromQuery] string fromVersion, [FromQuery] bool includePrerelease = false)
+        public async Task<IActionResult> DownloadUpgrade(
+            string app,
+            [FromQuery] string fromVersion,
+            [FromQuery] bool includePrerelease = false,
+            [FromQuery] bool includeSelfUpdate = true)
         {
             if (string.IsNullOrEmpty(fromVersion))
                 return BadRequest("fromVersion is required");
@@ -130,7 +158,8 @@ namespace UpdateServer.Controllers
             try
             {
                 var updaterVersion = GetUpdaterVersionFromRequest(Request);
-                var packagePath = await upgradeService.BuildUpgradePackage(app, clientVersion, includePrerelease, updaterVersion);
+                var packagePath = await upgradeService.BuildUpgradePackage(
+                    app, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate);
                 
                 if (packagePath == null)
                     return NotFound();

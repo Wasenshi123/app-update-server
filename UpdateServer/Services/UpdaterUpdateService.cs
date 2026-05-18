@@ -85,6 +85,40 @@ namespace UpdateServer.Services
             return false;
         }
         
+        public SelfUpdateCheckInfo? GetSelfUpdateCheckInfo(string? currentVersionStr, bool includePrerelease = false)
+        {
+            if (string.IsNullOrWhiteSpace(currentVersionStr) || !IsUpdaterUpdateNeeded(currentVersionStr))
+            {
+                return null;
+            }
+
+            var updaterFolder = updateManager.GetFolder("Updater");
+            if (updaterFolder == null)
+            {
+                return null;
+            }
+
+            var latestUpdater = updateManager.GetLatestUpdateInfo(updaterFolder);
+            var latestFile = includePrerelease && latestUpdater?.LatestPreRelease != null
+                ? latestUpdater.LatestPreRelease
+                : latestUpdater?.LatestStable;
+
+            if (latestFile?.Version == null)
+            {
+                return null;
+            }
+
+            return new SelfUpdateCheckInfo
+            {
+                Available = true,
+                CurrentVersion = currentVersionStr.Trim(),
+                TargetVersion = latestFile.Version.ToString(),
+                PackageFile = string.IsNullOrEmpty(latestFile.FilePath)
+                    ? null
+                    : Path.GetFileName(latestFile.FilePath)
+            };
+        }
+
         public UpgradeManifest? GenerateSelfUpdateManifest(string currentVersionStr)
         {
             if (!IsUpdaterUpdateNeeded(currentVersionStr)) return null;
