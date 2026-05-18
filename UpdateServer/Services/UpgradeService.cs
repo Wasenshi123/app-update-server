@@ -481,8 +481,8 @@ namespace UpdateServer.Services
                             
                             _logger.LogInformation("Successfully copied updater file: {fileName} ({size} bytes)", fileName, destFileInfo.Length);
                             
-                            // Populate Files in manifest - use the copied file's size for accuracy
-                            var targetDir = $"/home/hemo/updater/pending-update/updater-{upgrade.Version}";
+                            // Relative to updater install root (client resolves under GetUpdaterInstallDirectory)
+                            var targetDir = $"pending-update/updater-{upgrade.Version}";
                             upgrade.Files = new List<UpgradeFileParams>
                             {
                                 new UpgradeFileParams
