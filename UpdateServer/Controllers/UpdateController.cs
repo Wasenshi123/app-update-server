@@ -158,6 +158,15 @@ namespace UpdateServer.Controllers
             try
             {
                 var updaterVersion = GetUpdaterVersionFromRequest(Request);
+                if (includeSelfUpdate && string.IsNullOrEmpty(updaterVersion))
+                {
+                    var userAgent = Request.Headers["User-Agent"].ToString();
+                    _logger.LogWarning(
+                        "download-upgrade for {app}: no parseable updater version in User-Agent or X-Updater-Version (User-Agent: {userAgent})",
+                        app,
+                        string.IsNullOrEmpty(userAgent) ? "(missing)" : userAgent);
+                }
+
                 var packagePath = await upgradeService.BuildUpgradePackage(
                     app, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate);
                 

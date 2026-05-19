@@ -102,13 +102,32 @@ namespace UpdateServer.Services
             }
 
             // Check if Updater Self-Update is needed
-            if (includeSelfUpdate && !string.IsNullOrEmpty(updaterVersion))
+            if (includeSelfUpdate)
             {
-                var selfUpdateManifest = _updaterUpdateService.GenerateSelfUpdateManifest(updaterVersion);
-                if (selfUpdateManifest != null)
+                if (string.IsNullOrEmpty(updaterVersion))
                 {
-                    _logger.LogInformation("Injecting Updater Self-Update manifest {id}", selfUpdateManifest.Id);
-                    ordered.Add(selfUpdateManifest);
+                    _logger.LogWarning(
+                        "Skipping updater self-update in package for {appName}: no client updater version " +
+                        "(expected User-Agent AppUpdater/x.y.z or X-Updater-Version header).",
+                        appName);
+                }
+                else
+                {
+                    var selfUpdateManifest = _updaterUpdateService.GenerateSelfUpdateManifest(updaterVersion);
+                    if (selfUpdateManifest != null)
+                    {
+                        _logger.LogInformation(
+                            "Injecting Updater Self-Update manifest {id} (client updater {clientUpdater})",
+                            selfUpdateManifest.Id,
+                            updaterVersion);
+                        ordered.Add(selfUpdateManifest);
+                    }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "Updater self-update not required for client version {clientUpdater}",
+                            updaterVersion);
+                    }
                 }
             }
 
