@@ -234,7 +234,7 @@ namespace UpdateServer.Services
 
                 // Create run.sh script to extract updater to correct place
                 var runScriptPath = Path.Combine(upgradeDir, "run.sh");
-                var runScriptContent = GenerateRunScript("updater-new.tar.gz", appFolderName, hasBootstrap, hasSetup);
+                var runScriptContent = GenerateRunScript("updater-new.tar.gz", appFolderName, appName, hasBootstrap, hasSetup);
                 // Ensure Linux line endings (LF only, not CRLF) for shell script
                 var normalizedContent = runScriptContent.Replace("\r\n", "\n").Replace("\r", "\n");
                 File.WriteAllText(runScriptPath, normalizedContent, new System.Text.UTF8Encoding(false));
@@ -298,17 +298,50 @@ namespace UpdateServer.Services
         }
 
         /// <summary>
+        /// Linux directory for Updater legacy migration + <c>settings.json</c> in the generated <c>run.sh</c>.
+        /// HemoCheckIn runs as <c>hemo</c> (same as <c>LocalApplicationData</c>/Updater on that user).
+        /// HemoBox IoT typically runs the updater chain as root.
+        /// </summary>
+        private static string GetUpdaterSettingsDirectoryForPackagedScript(string? appName)
+        {
+            if (IsHemoCheckInApp(appName))
+            {
+                return "/home/hemo/.local/share/Updater";
+            }
+
+            return "/root/.local/share/Updater";
+        }
+
+        private static bool IsHemoCheckInApp(string? appName)
+        {
+            if (string.IsNullOrWhiteSpace(appName))
+            {
+                return false;
+            }
+
+            var key = appName.Trim();
+            return key.Equals("HemoCheckIn", StringComparison.OrdinalIgnoreCase)
+                || key.Equals("CheckIn", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Generate run.sh script to extract updater to Updater folder
         /// Matches the existing upgrade pattern used on IoT devices.
         ///
         /// Also migrates legacy version-scoped Updater settings
-        /// (/root/.local/share/Updater/&lt;Updater_Url_xxx&gt;/1.0.0.0/user.config)
-        /// to the new non-version-scoped JSON file (/root/.local/share/Updater/settings.json)
-        /// used by Updater >= 2.0.0. The migration is idempotent: it skips if the new
-        /// settings.json already exists or if no legacy file is found.
+        /// (&lt;SETTINGS_DIR&gt;/&lt;Updater_Url_xxx&gt;/1.0.0.0/user.config)
+        /// to the new non-version-scoped JSON file (settings.json next to legacy trees).
+        /// The SETTINGS_DIR value is chosen from the app being updated (HemoCheckIn vs HemoBox).
+        /// The migration is idempotent: it skips if the new settings.json already exists or if no legacy file is found.
         /// </summary>
-        private string GenerateRunScript(string updaterFileName, string appFolderName, bool hasBootstrap, bool hasSetup)
+        private string GenerateRunScript(string updaterFileName, string appFolderName, string appName, bool hasBootstrap, bool hasSetup)
         {
+            var settingsDir = GetUpdaterSettingsDirectoryForPackagedScript(appName);
+            logger.LogInformation(
+                "Generating embedded run.sh: SETTINGS_DIR={settingsDir} for app {appName}",
+                settingsDir,
+                appName);
+
             var script = @"#!/bin/bash
 
 # Upgrade script to update appUpdater
@@ -321,7 +354,7 @@ DESTINATION_DIR=""/home/hemo/updater""
 # Updater settings live under XDG data dir. Old versions used a version-scoped
 # subfolder (Updater_Url_<hash>/1.0.0.0/user.config); v2+ uses settings.json
 # directly under this directory.
-SETTINGS_DIR=""/root/.local/share/Updater""
+SETTINGS_DIR=""" + settingsDir + @"""
 NEW_SETTINGS_FILE=""$SETTINGS_DIR/settings.json""
 
 if [ ! -f ""$UPDATER_PATH"" ]; then
