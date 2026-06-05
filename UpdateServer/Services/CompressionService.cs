@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace UpdateServer.Services
@@ -30,66 +31,115 @@ namespace UpdateServer.Services
         public async Task ExtractTar(Stream tarStream, string extractPath)
         {
             var buffer = new byte[512];
-            Directory.CreateDirectory(extractPath);
+
+            string? fullExtractPath;
+            try
+            {
+                fullExtractPath = Path.GetFullPath(extractPath);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new IOException($"Invalid extract path: {extractPath}", ex);
+            }
+
+            Directory.CreateDirectory(fullExtractPath);
+
+            string? gnuLongName = null;
 
             while (true)
             {
                 int bytesRead = await tarStream.ReadAsync(buffer, 0, 512);
                 if (bytesRead == 0 || buffer.All(b => b == 0))
+                {
                     break;
+                }
 
-                string fileName = System.Text.Encoding.ASCII.GetString(buffer, 0, 100).TrimEnd('\0');
-                if (string.IsNullOrWhiteSpace(fileName))
+                if (bytesRead < 512)
+                {
                     break;
+                }
 
-                string sizeStr = System.Text.Encoding.ASCII.GetString(buffer, 124, 12).TrimEnd('\0', ' ');
-                if (!long.TryParse(sizeStr, System.Globalization.NumberStyles.Integer, null, out long fileSize))
-                    fileSize = 0;
+                string sizeStr = Encoding.ASCII.GetString(buffer, 124, 12).TrimEnd('\0', ' ');
+                long fileSize = ParseTarOctalSize(sizeStr);
 
-                // After reading the 512-byte header, we're already positioned correctly to read the file content
-                // No need to seek (which doesn't work with GZipStream anyway)
+                char typeFlag = (char)buffer[156];
+                if (typeFlag == '\0')
+                {
+                    typeFlag = '0';
+                }
+
+                // GNU long name block — payload is the path for the *next* header.
+                if (typeFlag == 'L')
+                {
+                    if (fileSize <= 0 || fileSize > 1024 * 1024)
+                    {
+                        _logger.LogWarning("GNU long-name block has abnormal size {size}; discarding payload", fileSize);
+                        gnuLongName = null;
+                        await SkipTarFileBodyAsync(tarStream, buffer, fileSize);
+                        await SkipTarPaddingAsync(tarStream, buffer, fileSize);
+                        continue;
+                    }
+
+                    gnuLongName = await ReadTarStringPayloadAsync(tarStream, buffer, fileSize);
+                    gnuLongName = gnuLongName?.Replace('\0', ' ').Trim();
+                    await SkipTarPaddingAsync(tarStream, buffer, fileSize);
+                    continue;
+                }
+
+                // PAX extended / global / GNU longlink: skip payload; do not treat as a file path.
+                if (typeFlag == 'x' || typeFlag == 'g' || typeFlag == 'X' || typeFlag == 'K')
+                {
+                    await SkipTarFileBodyAsync(tarStream, buffer, fileSize);
+                    await SkipTarPaddingAsync(tarStream, buffer, fileSize);
+                    gnuLongName = null;
+                    continue;
+                }
+
+                string entryName = BuildTarEntryName(buffer, gnuLongName);
+                gnuLongName = null;
+
+                if (string.IsNullOrWhiteSpace(entryName))
+                {
+                    await SkipTarFileBodyAsync(tarStream, buffer, fileSize);
+                    await SkipTarPaddingAsync(tarStream, buffer, fileSize);
+                    continue;
+                }
+
+                if (typeFlag == '5')
+                {
+                    // Directory entry (size usually 0)
+                    if (TryResolveSafeExtractPath(fullExtractPath, entryName, _logger, out var dirPath))
+                    {
+                        Directory.CreateDirectory(dirPath);
+                    }
+
+                    await SkipTarFileBodyAsync(tarStream, buffer, fileSize);
+                    await SkipTarPaddingAsync(tarStream, buffer, fileSize);
+                    continue;
+                }
+
+                if (typeFlag != '0' && typeFlag != '7')
+                {
+                    // Unsupported entry — consume payload and continue.
+                    await SkipTarFileBodyAsync(tarStream, buffer, fileSize);
+                    await SkipTarPaddingAsync(tarStream, buffer, fileSize);
+                    continue;
+                }
 
                 if (fileSize > 0)
                 {
-                    // Sanitize filename to prevent path traversal attacks
-                    fileName = fileName.Replace('\\', '/').TrimStart('/');
-                    var filePath = Path.Combine(extractPath, fileName);
-                    
-                    // Validate that the resolved path is still within extractPath
-                    var fullExtractPath = Path.GetFullPath(extractPath);
-                    var fullFilePath = Path.GetFullPath(filePath);
-                    if (!fullFilePath.StartsWith(fullExtractPath + Path.DirectorySeparatorChar) && 
-                        fullFilePath != fullExtractPath)
+                    if (!TryResolveSafeExtractPath(fullExtractPath, entryName, _logger, out var filePath))
                     {
-                        _logger.LogWarning("Skipping file with suspicious path: {fileName}", fileName);
-                        // Skip this file and read past it
-                        long remaining = fileSize;
-                        while (remaining > 0)
-                        {
-                            int toRead = (int)Math.Min(remaining, buffer.Length);
-                            int read = await tarStream.ReadAsync(buffer, 0, toRead);
-                            if (read == 0) break;
-                            remaining -= read;
-                        }
-                        // Skip padding and continue to next entry
-                        long skipPadding = (512 - (fileSize % 512)) % 512;
-                        if (skipPadding > 0)
-                        {
-                            remaining = skipPadding;
-                            while (remaining > 0)
-                            {
-                                int toRead = (int)Math.Min(remaining, buffer.Length);
-                                int read = await tarStream.ReadAsync(buffer, 0, toRead);
-                                if (read == 0) break;
-                                remaining -= read;
-                            }
-                        }
+                        await SkipTarFileBodyAsync(tarStream, buffer, fileSize);
+                        await SkipTarPaddingAsync(tarStream, buffer, fileSize);
                         continue;
                     }
-                    
+
                     var directory = Path.GetDirectoryName(filePath);
                     if (!string.IsNullOrEmpty(directory))
+                    {
                         Directory.CreateDirectory(directory);
+                    }
 
                     using (var fileStream = File.Create(filePath))
                     {
@@ -98,27 +148,178 @@ namespace UpdateServer.Services
                         {
                             int toRead = (int)Math.Min(remaining, buffer.Length);
                             int read = await tarStream.ReadAsync(buffer, 0, toRead);
-                            if (read == 0) break;
+                            if (read == 0)
+                            {
+                                break;
+                            }
+
                             await fileStream.WriteAsync(buffer, 0, read);
                             remaining -= read;
                         }
                     }
                 }
 
-                // Skip padding to next 512-byte boundary
-                long padding = (512 - (fileSize % 512)) % 512;
-                if (padding > 0)
+                await SkipTarPaddingAsync(tarStream, buffer, fileSize);
+            }
+        }
+
+        private static string BuildTarEntryName(byte[] header, string? gnuLongName)
+        {
+            if (!string.IsNullOrEmpty(gnuLongName))
+            {
+                return gnuLongName.Replace('\\', '/').TrimStart('/');
+            }
+
+            var name = Encoding.ASCII.GetString(header, 0, 100).TrimEnd('\0', ' ');
+            var magic = Encoding.ASCII.GetString(header, 257, 6).TrimEnd('\0', ' ');
+            if (magic.StartsWith("ustar", StringComparison.Ordinal))
+            {
+                var prefix = Encoding.ASCII.GetString(header, 345, 155).TrimEnd('\0', ' ');
+                if (!string.IsNullOrEmpty(prefix))
                 {
-                    // Read and discard padding bytes instead of seeking
-                    long remaining = padding;
-                    while (remaining > 0)
-                    {
-                        int toRead = (int)Math.Min(remaining, buffer.Length);
-                        int read = await tarStream.ReadAsync(buffer, 0, toRead);
-                        if (read == 0) break;
-                        remaining -= read;
-                    }
+                    name = prefix.TrimEnd('/') + "/" + name;
                 }
+            }
+
+            return name.Replace('\\', '/').TrimStart('/');
+        }
+
+        private static string SanitizePathSegment(string segment)
+        {
+            if (string.IsNullOrEmpty(segment))
+            {
+                return "_";
+            }
+
+            var invalid = Path.GetInvalidFileNameChars();
+            var chars = segment.Select(c =>
+                c < 32 || invalid.Contains(c) ? '_' : c).ToArray();
+            return new string(chars);
+        }
+
+        /// <summary>Builds a path under extractRoot from a /-separated tar entry name; blocks traversal.</summary>
+        private static bool TryResolveSafeExtractPath(
+            string fullExtractRoot,
+            string entryRelativePath,
+            ILogger logger,
+            out string fullFilePath)
+        {
+            fullFilePath = "";
+            try
+            {
+                var segments = entryRelativePath
+                    .Replace('\\', '/')
+                    .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(s => s != "." && s != "..")
+                    .Select(SanitizePathSegment)
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .ToArray();
+
+                if (segments.Length == 0)
+                {
+                    return false;
+                }
+
+                var combined = Path.Combine(new[] { fullExtractRoot }.Concat(segments).ToArray());
+                var fullCombined = Path.GetFullPath(combined);
+
+                if (!fullCombined.StartsWith(fullExtractRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(fullCombined, fullExtractRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogWarning("Skipping tar entry outside extract root: {entry}", entryRelativePath);
+                    return false;
+                }
+
+                fullFilePath = fullCombined;
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                logger.LogWarning("Skipping tar entry with invalid path characters: {entry}", entryRelativePath);
+                return false;
+            }
+        }
+
+        private static async Task<string?> ReadTarStringPayloadAsync(Stream tarStream, byte[] buffer, long payloadSize)
+        {
+            if (payloadSize <= 0 || payloadSize > 1024 * 1024)
+            {
+                return null;
+            }
+
+            var nameBuf = new byte[payloadSize];
+            long offset = 0;
+            while (offset < payloadSize)
+            {
+                int toRead = (int)Math.Min(payloadSize - offset, buffer.Length);
+                int read = await tarStream.ReadAsync(buffer, 0, toRead);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                Buffer.BlockCopy(buffer, 0, nameBuf, (int)offset, read);
+                offset += read;
+            }
+
+            return Encoding.ASCII.GetString(nameBuf).TrimEnd('\0');
+        }
+
+        private static async Task SkipTarFileBodyAsync(Stream tarStream, byte[] buffer, long fileSize)
+        {
+            long remaining = fileSize;
+            while (remaining > 0)
+            {
+                int toRead = (int)Math.Min(remaining, buffer.Length);
+                int read = await tarStream.ReadAsync(buffer, 0, toRead);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                remaining -= read;
+            }
+        }
+
+        private static long ParseTarOctalSize(string sizeField)
+        {
+            var trimmed = sizeField.TrimEnd('\0', ' ').Trim();
+            if (string.IsNullOrEmpty(trimmed))
+            {
+                return 0;
+            }
+
+            try
+            {
+                return Convert.ToInt64(trimmed, 8);
+            }
+            catch (Exception)
+            {
+                return long.TryParse(trimmed, System.Globalization.NumberStyles.Integer, null, out var dec)
+                    ? dec
+                    : 0;
+            }
+        }
+
+        private static async Task SkipTarPaddingAsync(Stream tarStream, byte[] buffer, long fileSize)
+        {
+            long padding = (512 - (fileSize % 512)) % 512;
+            if (padding <= 0)
+            {
+                return;
+            }
+
+            long rem = padding;
+            while (rem > 0)
+            {
+                int toRead = (int)Math.Min(rem, buffer.Length);
+                int read = await tarStream.ReadAsync(buffer, 0, toRead);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                rem -= read;
             }
         }
 
