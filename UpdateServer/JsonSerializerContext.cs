@@ -3,9 +3,9 @@ using System.Text.Json.Serialization;
 
 namespace UpdateServer
 {
-    [JsonSourceGenerationOptions(
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    // Naming comes from [JsonPropertyName] on models only — avoid a second camelCase policy
+    // so generated package JSON matches what the AppUpdater client expects.
+    [JsonSourceGenerationOptions(WriteIndented = true)]
     [JsonSerializable(typeof(UpgradeManifest))]
     [JsonSerializable(typeof(UpgradePackageManifest))]
     [JsonSerializable(typeof(VersionRange))]

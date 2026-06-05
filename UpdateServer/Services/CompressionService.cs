@@ -344,11 +344,29 @@ namespace UpdateServer.Services
                 var relativePath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
                 var fileInfo = new FileInfo(file);
 
+                // ustar name field is 100 bytes; longer paths were silently truncated and broke
+                // package-manifest.json / upgrades/... layout on the client. Fail fast until GNU longname write is implemented.
+                const int maxUstarNameBytes = 100;
+                foreach (var c in relativePath)
+                {
+                    if (c > 0x7f)
+                    {
+                        throw new InvalidOperationException(
+                            $"Tar entry path must be ASCII-only (ustar writer): {relativePath}");
+                    }
+                }
+
+                var nameBytes = System.Text.Encoding.ASCII.GetBytes(relativePath);
+                if (nameBytes.Length > maxUstarNameBytes)
+                {
+                    throw new InvalidOperationException(
+                        $"Tar entry path exceeds {maxUstarNameBytes} bytes (ustar limit): {relativePath} ({nameBytes.Length} bytes). Shorten upgrade ids or folder names.");
+                }
+
                 Array.Clear(buffer, 0, 512);
 
                 // File name (100 bytes, offset 0)
-                var nameBytes = System.Text.Encoding.ASCII.GetBytes(relativePath);
-                Array.Copy(nameBytes, 0, buffer, 0, Math.Min(nameBytes.Length, 100));
+                Array.Copy(nameBytes, 0, buffer, 0, nameBytes.Length);
 
                 // File mode (8 bytes, offset 100) - must be 8 bytes with space or null terminator
                 var modeBytes = System.Text.Encoding.ASCII.GetBytes("0000644 ");

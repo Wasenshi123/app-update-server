@@ -21,7 +21,13 @@ namespace UpdateServer.Services
         
         // Relative path for upgrade files (consistent with UpdateManager.PREFIX_FOLDER pattern)
         // Combined with AppDomain.CurrentDomain.BaseDirectory to get full path
-        public const string UPGRADE_FOLDER = "upgrade"; 
+        public const string UPGRADE_FOLDER = "upgrade";
+
+        /// <summary>
+        /// When the updater has no persisted app version, the client sends this to check-upgrades / download-upgrade.
+        /// Incremental <c>upgrade-manifests</c> on disk are skipped; only the virtual full-app update (+ optional updater self-update) is built.
+        /// </summary>
+        public const string UnknownClientAppVersionSentinel = "0.0.0-hemo.unknown";
 
         public UpgradeService(
             ILogger<UpgradeService> logger,
@@ -42,13 +48,21 @@ namespace UpdateServer.Services
             AppVersion clientVersion,
             bool includePrerelease,
             string? updaterVersion = null,
-            bool includeSelfUpdate = true)
+            bool includeSelfUpdate = true,
+            bool unknownClientAppVersion = false)
         {
             var appFolder = _updateManager.GetFolder(appName);
             if (string.IsNullOrEmpty(appFolder))
             {
                 _logger.LogWarning("App folder not found for {appName}", appName);
                 return null;
+            }
+
+            if (unknownClientAppVersion)
+            {
+                _logger.LogInformation(
+                    "{appName}: unknown client app version sentinel — skipping incremental upgrade-manifests on disk",
+                    appName);
             }
 
             var latestAppUpdate = _updateManager.GetLatestUpdateInfo(appFolder);
@@ -70,8 +84,8 @@ namespace UpdateServer.Services
                 return null;
             }
 
-            // Load manifests
-            var manifests = LoadManifests(appFolder);
+            // Load manifests (skip incremental disk manifests when client app version is unknown to the updater)
+            var manifests = unknownClientAppVersion ? new List<UpgradeManifest>() : LoadManifests(appFolder);
             
             // Filter
             var applicable = FilterApplicableUpgrades(manifests, clientVersion, latestVersion);
@@ -146,9 +160,11 @@ namespace UpdateServer.Services
             AppVersion clientVersion,
             bool includePrerelease,
             string? updaterVersion = null,
-            bool includeSelfUpdate = true)
+            bool includeSelfUpdate = true,
+            bool unknownClientAppVersion = false)
         {
-            var result = GetApplicableUpgrades(appName, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate);
+            var result = GetApplicableUpgrades(
+                appName, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate, unknownClientAppVersion);
             if (result == null || !result.Upgrades.Any())
             {
                 return null;
@@ -209,11 +225,11 @@ namespace UpdateServer.Services
                 return cachePath;
             }
 
-            // Get fromVersion - use AppliesTo.MinVersion if available, otherwise use clientVersion
-            var firstUpgrade = result.Upgrades.First();
-            var fromVersion = firstUpgrade.AppliesTo?.MinVersion ?? clientVersion.ToString();
-            
-            return await PackageUpgrades(appName, result.Upgrades, cachePath, fromVersion, result.TargetVersion, includePrerelease);
+            // package-manifest fromVersion must match the client's reported version (check-upgrades body),
+            // not a manifest AppliesTo.MinVersion (which can be older than the client).
+            var fromVersionForPackage = clientVersion.ToString();
+
+            return await PackageUpgrades(appName, result.Upgrades, cachePath, fromVersionForPackage, result.TargetVersion, includePrerelease);
         }
 
         private List<UpgradeManifest> LoadManifests(string appFolder)
@@ -412,11 +428,20 @@ namespace UpdateServer.Services
                 Directory.CreateDirectory(upgradePkgDir);
 
                 // Create manifest
+                var upgradeIds = upgrades
+                    .Select(u => u.Id)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .ToList();
+                if (upgradeIds.Count == 0)
+                {
+                    throw new InvalidOperationException("Cannot build upgrade package: no valid upgrade ids.");
+                }
+
                 var packageManifest = new UpgradePackageManifest
                 {
                     FromVersion = fromVersion,
                     ToVersion = toVersion,
-                    Upgrades = upgrades.Select(u => u.Id).ToList()
+                    Upgrades = upgradeIds
                 };
 
                 File.WriteAllText(
@@ -428,6 +453,11 @@ namespace UpdateServer.Services
 
                 foreach (var upgrade in upgrades)
                 {
+                    if (string.IsNullOrWhiteSpace(upgrade.Id))
+                    {
+                        throw new InvalidOperationException("Upgrade entry is missing id; cannot package.");
+                    }
+
                     var destPath = Path.Combine(upgradesDir, upgrade.Id);
                     Directory.CreateDirectory(destPath);
 
@@ -457,16 +487,16 @@ namespace UpdateServer.Services
                         }
                         else
                         {
-                            _logger.LogWarning("App update file not found");
+                            var msg = $"App update tarball not found for app '{appName}' (includePrerelease={includePrerelease}). Cannot build upgrade package.";
+                            _logger.LogError(msg);
+                            throw new FileNotFoundException(msg);
                         }
 
                     }
                     else if (upgrade.Metadata != null && upgrade.Metadata.ContainsKey("Type") && upgrade.Metadata["Type"].ToString() == "UpdaterSelfUpdate")
                     {
-                        // Handle Updater Self-Update
-                        var updaterFolder = _updateManager.GetFolder("Updater");
-                        var latestUpdater = _updateManager.GetLatestUpdateInfo(updaterFolder);
-                        var updaterFilePath = latestUpdater?.LatestStable?.FilePath;
+                        // Handle Updater Self-Update (same channel selection as app: stable vs pre-release)
+                        var updaterFilePath = _updateManager.GetUpdateFileForApp("Updater", includePrerelease);
 
                         if (!string.IsNullOrEmpty(updaterFilePath) && File.Exists(updaterFilePath))
                         {
@@ -533,6 +563,15 @@ namespace UpdateServer.Services
                             _logger.LogWarning("Upgrade source path not found: {path}", sourcePath);
                             throw new DirectoryNotFoundException($"Upgrade source path not found: {sourcePath}");
                         }
+                    }
+
+                    if (upgrade.Metadata != null
+                        && upgrade.Metadata.TryGetValue("Type", out var typeObj)
+                        && string.Equals(typeObj?.ToString(), "AppUpdate", StringComparison.OrdinalIgnoreCase)
+                        && (upgrade.Files == null || upgrade.Files.Count == 0))
+                    {
+                        throw new InvalidOperationException(
+                            $"AppUpdate upgrade '{upgrade.Id}' has no packaged files; refusing to emit an invalid manifest.");
                     }
 
                     // Also write the manifest itself so client knows what to do

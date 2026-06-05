@@ -88,12 +88,16 @@ namespace UpdateServer.Controllers
         [HttpPost("{app}/check-upgrades")]
         public IActionResult CheckUpgrades(string app, [FromBody] CheckRequest request, [FromQuery] bool includePrerelease = false)
         {
-            if (string.IsNullOrEmpty(request?.Version))
-            {
-                 return BadRequest("Version is required");
-            }
+            var versionRaw = string.IsNullOrWhiteSpace(request?.Version)
+                ? UpgradeService.UnknownClientAppVersionSentinel
+                : request.Version.Trim();
 
-            var clientVersion = AppVersion.Parse(request.Version);
+            var unknownClientAppVersion = string.Equals(
+                versionRaw,
+                UpgradeService.UnknownClientAppVersionSentinel,
+                StringComparison.OrdinalIgnoreCase);
+
+            var clientVersion = AppVersion.Parse(versionRaw);
             if (clientVersion == null)
             {
                 return BadRequest("Invalid version format");
@@ -102,7 +106,7 @@ namespace UpdateServer.Controllers
             var includeSelfUpdate = request.IncludeSelfUpdate ?? true;
             var updaterVersion = GetUpdaterVersionFromRequest(Request);
             var result = upgradeService.GetApplicableUpgrades(
-                app, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate);
+                app, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate, unknownClientAppVersion);
             if (result == null)
             {
                 return NotFound();
@@ -117,7 +121,7 @@ namespace UpdateServer.Controllers
                 return NoContent();
             }
 
-            return Ok(BuildUpgradeInfoResponse(request.Version, result, selfUpdate));
+            return Ok(BuildUpgradeInfoResponse(versionRaw, result, selfUpdate));
         }
 
         private static UpgradeInfoWrapper BuildUpgradeInfoResponse(
@@ -151,7 +155,13 @@ namespace UpdateServer.Controllers
             if (string.IsNullOrEmpty(fromVersion))
                 return BadRequest("fromVersion is required");
 
-            var clientVersion = AppVersion.Parse(fromVersion);
+            var fromRaw = fromVersion.Trim();
+            var unknownClientAppVersion = string.Equals(
+                fromRaw,
+                UpgradeService.UnknownClientAppVersionSentinel,
+                StringComparison.OrdinalIgnoreCase);
+
+            var clientVersion = AppVersion.Parse(fromRaw);
             if (clientVersion == null)
                 return BadRequest("Invalid version format");
 
@@ -168,7 +178,7 @@ namespace UpdateServer.Controllers
                 }
 
                 var packagePath = await upgradeService.BuildUpgradePackage(
-                    app, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate);
+                    app, clientVersion, includePrerelease, updaterVersion, includeSelfUpdate, unknownClientAppVersion);
                 
                 if (packagePath == null)
                     return NotFound();
