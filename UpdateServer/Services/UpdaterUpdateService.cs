@@ -332,6 +332,10 @@ namespace UpdateServer.Services
         /// (&lt;SETTINGS_DIR&gt;/&lt;Updater_Url_xxx&gt;/1.0.0.0/user.config)
         /// to the new non-version-scoped JSON file (settings.json next to legacy trees).
         /// The SETTINGS_DIR value is chosen from the app being updated (HemoCheckIn vs HemoBox).
+        /// For HemoCheckIn, after migration the script <c>chown -R hemo:hemo</c> on <c>SETTINGS_DIR</c>
+        /// (so config is writable if tar fails). After a successful extract and optional bootstrap copy,
+        /// it chowns <c>/home/hemo/updater</c>, the app root <c>/home/hemo/$APP_FOLDER</c> (e.g. checkinapp),
+        /// and <c>/home/hemo/bootstrap-updater.sh</c> when present.
         /// The migration is idempotent: it skips if the new settings.json already exists or if no legacy file is found.
         /// </summary>
         private string GenerateRunScript(string updaterFileName, string appFolderName, string appName, bool hasBootstrap, bool hasSetup)
@@ -426,7 +430,30 @@ EOF
 if ! migrate_legacy_settings; then
     echo ""[Upgrade] WARNING: legacy settings migration encountered an error, continuing anyway""
 fi
+";
 
+            if (IsHemoCheckInApp(appName))
+            {
+                script += @"
+
+# ---------------------------------------------------------------------------
+# HemoCheckIn: service user hemo must own updater config under SETTINGS_DIR.
+# Run once after migration (covers root-owned settings even if tar fails later).
+# ---------------------------------------------------------------------------
+if id hemo >/dev/null 2>&1; then
+    mkdir -p ""$SETTINGS_DIR"" 2>/dev/null || true
+    if chown -R hemo:hemo ""$SETTINGS_DIR"" 2>/dev/null; then
+        echo ""[Upgrade] Ownership of $SETTINGS_DIR set to hemo:hemo""
+    else
+        echo ""[Upgrade] WARNING: chown hemo:hemo on $SETTINGS_DIR failed (insufficient privileges?)""
+    fi
+else
+    echo ""[Upgrade] WARNING: user hemo not found; skipped chown on updater config dir""
+fi
+";
+            }
+
+            script += @"
 echo ""[Upgrade] Extracting updater archive...""
 tar -xzf ""$UPDATER_PATH"" -C ""$DESTINATION_DIR""
 rc=$?
@@ -474,6 +501,32 @@ if [ -f ""$SETUP_PATH"" ]; then
     else
          echo ""[Upgrade] WARNING: setup-bootstrap.sh failed.""
     fi
+fi
+";
+            }
+
+            if (IsHemoCheckInApp(appName))
+            {
+                script += @"
+
+# ---------------------------------------------------------------------------
+# HemoCheckIn: upgrade often runs as root; tar/bootstrap leave root-owned files
+# under the CheckIn app tree and updater install — chown so hemo can run and update.
+# (Updater JSON/XDG config is handled after migration, above.)
+# ---------------------------------------------------------------------------
+if id hemo >/dev/null 2>&1; then
+    APP_ROOT=""/home/hemo/$APP_FOLDER""
+    for target in ""$DESTINATION_DIR"" ""$APP_ROOT"" ""/home/hemo/bootstrap-updater.sh""; do
+        if [ -e ""$target"" ]; then
+            if chown -R hemo:hemo ""$target"" 2>/dev/null; then
+                echo ""[Upgrade] Ownership of $target set to hemo:hemo""
+            else
+                echo ""[Upgrade] WARNING: chown hemo:hemo on $target failed (insufficient privileges?)""
+            fi
+        fi
+    done
+else
+    echo ""[Upgrade] WARNING: user hemo not found; skipped chown on app/updater/bootstrap paths""
 fi
 ";
             }
