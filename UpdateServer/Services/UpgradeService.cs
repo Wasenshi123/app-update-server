@@ -145,7 +145,7 @@ namespace UpdateServer.Services
                 }
             }
 
-            var estimatedSize = ordered.Sum(u => u.Files?.Sum(f => f.Size) ?? 0);
+            var estimatedSize = ComputeEstimatedUpgradePayloadBytes(appName, ordered, includePrerelease);
 
             return new ApplicableUpgradesResult
             {
@@ -230,6 +230,54 @@ namespace UpdateServer.Services
             var fromVersionForPackage = clientVersion.ToString();
 
             return await PackageUpgrades(appName, result.Upgrades, cachePath, fromVersionForPackage, result.TargetVersion, includePrerelease);
+        }
+
+        /// <summary>
+        /// Sum of payload bytes for the upgrades that would be packaged. Virtual AppUpdate / UpdaterSelfUpdate
+        /// entries start with empty <see cref="UpgradeManifest.Files"/>; those are filled only during
+        /// <see cref="PackageUpgrades"/> — without this, check-upgrades would report <c>packageSize: 0</c> and
+        /// clients cannot show sane download progress when Content-Length is missing or wrong.
+        /// </summary>
+        private long ComputeEstimatedUpgradePayloadBytes(
+            string appName,
+            List<UpgradeManifest> ordered,
+            bool includePrerelease)
+        {
+            long sum = 0;
+            foreach (var u in ordered)
+            {
+                var fromManifest = u.Files?.Sum(f => f.Size) ?? 0;
+                if (fromManifest > 0)
+                {
+                    sum += fromManifest;
+                    continue;
+                }
+
+                if (u.Metadata == null || !u.Metadata.TryGetValue("Type", out var typeObj))
+                {
+                    continue;
+                }
+
+                var type = typeObj?.ToString();
+                if (string.Equals(type, "AppUpdate", StringComparison.OrdinalIgnoreCase))
+                {
+                    var path = _updateManager.GetUpdateFileForApp(appName, includePrerelease);
+                    if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                    {
+                        sum += new FileInfo(path).Length;
+                    }
+                }
+                else if (string.Equals(type, "UpdaterSelfUpdate", StringComparison.OrdinalIgnoreCase))
+                {
+                    var path = _updateManager.GetUpdateFileForApp("Updater", includePrerelease);
+                    if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                    {
+                        sum += new FileInfo(path).Length;
+                    }
+                }
+            }
+
+            return sum;
         }
 
         private List<UpgradeManifest> LoadManifests(string appFolder)
