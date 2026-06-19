@@ -75,9 +75,45 @@ namespace UpdateServer
             if (preReleaseComparison != 0)
                 return preReleaseComparison;
 
-            // Same pre-release type, use commit sha or timestamp as tiebreaker
-            // For simplicity we'll rely on timestamp comparison elsewhere
+            // Same pre-release type — commit shas are not semver-ordered (git hash order != lex order).
+            // Ordering within a channel is done by file LastModified in GetLatestAppFile.
             return 0;
+        }
+
+        /// <summary>Same base version and pre-release channel (e.g. both 3.0.2-alpha).</summary>
+        public bool SameReleaseChannel(AppVersion other)
+        {
+            if (other == null) return false;
+            if (Version != other.Version) return false;
+            if (IsPreRelease != other.IsPreRelease) return false;
+            if (!IsPreRelease) return true;
+            return string.Equals(PreRelease, other.PreRelease, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Exact same build label, including commit sha for pre-releases.</summary>
+        public bool SameBuild(AppVersion other)
+        {
+            if (other == null || !SameReleaseChannel(other)) return false;
+            if (!IsPreRelease) return true;
+            return string.Equals(CommitSha, other.CommitSha, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// True when the client should install <paramref name="serverLatest"/>.
+        /// Uses server file selection (LastModified) plus build identity, not sha lex order.
+        /// </summary>
+        public static bool IsClientBehindServerLatest(AppVersion serverLatest, AppVersion client)
+        {
+            if (serverLatest == null || client == null) return false;
+
+            var cmp = serverLatest.CompareTo(client);
+            if (cmp > 0) return true;
+            if (cmp < 0) return false;
+
+            if (serverLatest.IsPreRelease && serverLatest.SameReleaseChannel(client))
+                return !serverLatest.SameBuild(client);
+
+            return false;
         }
 
         private int ComparePreReleaseType(string a, string b)
@@ -192,7 +228,8 @@ namespace UpdateServer
             var latestAppVersion = GetFileVersionFromName(latest);
             var clientAppVersion = AppVersion.Parse(check.Version);
 
-            if (latestAppVersion != null && clientAppVersion != null && latestAppVersion.CompareTo(clientAppVersion) > 0)
+            if (latestAppVersion != null && clientAppVersion != null
+                && AppVersion.IsClientBehindServerLatest(latestAppVersion, clientAppVersion))
             {
                 logger.LogInformation("latest version: {version}", latestAppVersion);
                 return false;

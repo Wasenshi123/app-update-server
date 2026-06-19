@@ -94,7 +94,8 @@ namespace UpdateServer.Services
             var ordered = ResolveUpgradeOrder(applicable);
 
             // Check if App Update is needed and add it as a virtual manifest
-            if (latestVersion != null && clientVersion != null && latestVersion.CompareTo(clientVersion) > 0)
+            if (latestVersion != null && clientVersion != null
+                && AppVersion.IsClientBehindServerLatest(latestVersion, clientVersion))
             {
                 var appUpdateManifest = new UpgradeManifest
                 {
