@@ -88,6 +88,14 @@ namespace UpdateServer.Controllers
         [HttpPost("{app}/check-upgrades")]
         public IActionResult CheckUpgrades(string app, [FromBody] CheckRequest request, [FromQuery] bool includePrerelease = false)
         {
+            if (IsOldUpdaterClient(Request))
+            {
+                _logger.LogInformation(
+                    "{app} check-upgrades from legacy updater (< 2.0.0); client should use /check",
+                    app);
+                return NotFound();
+            }
+
             var versionRaw = string.IsNullOrWhiteSpace(request?.Version)
                 ? UpgradeService.UnknownClientAppVersionSentinel
                 : request.Version.Trim();
@@ -152,6 +160,14 @@ namespace UpdateServer.Controllers
             [FromQuery] bool includePrerelease = false,
             [FromQuery] bool includeSelfUpdate = true)
         {
+            if (IsOldUpdaterClient(Request))
+            {
+                _logger.LogInformation(
+                    "download-upgrade for {app} from legacy updater (< 2.0.0); serving legacy flat package",
+                    app);
+                return await DownloadLegacyFlatPackageAsync(app, includePrerelease);
+            }
+
             if (string.IsNullOrEmpty(fromVersion))
                 return BadRequest("fromVersion is required");
 
@@ -194,6 +210,15 @@ namespace UpdateServer.Controllers
 
         [HttpGet("{app}/download")]
         public async Task<IActionResult> DownloadFile(string app, [FromQuery] bool includePrerelease = false)
+        {
+            return await DownloadLegacyFlatPackageAsync(app, includePrerelease);
+        }
+
+        /// <summary>
+        /// Legacy updater path: flat app tarball, optionally repackaged with embedded updater self-update.
+        /// Avoids manifest bundles (package-manifest.json) that legacy clients cannot parse after extract.
+        /// </summary>
+        private async Task<IActionResult> DownloadLegacyFlatPackageAsync(string app, bool includePrerelease)
         {
             // Detect if this is an old updater client
             bool isOldUpdater = IsOldUpdaterClient(Request);
