@@ -1,104 +1,49 @@
 <!--
-Engineering Notebook
-บังคับสำหรับ Feature ที่ใช้เวลาพัฒนามากกว่า 1 วัน หรือมีผลกระทบต่อระบบ
-คิดก่อนเขียนโค้ด — ไม่ใช่เอกสารรายงานสถานะ
+PR Template สำหรับ App Update Server
+ใช้สำหรับแก้ server / API / config การ host update — ไม่ใช่ Engineering Notebook ของ Feature
 -->
 
-## Requirement
+## สรุป
 
-<!-- ผู้ใช้คือใคร? เจอปัญหาอะไร? Feature นี้ช่วยแก้ปัญหาอะไร? ผลลัพธ์ที่ต้องการคืออะไร? -->
-
--
-
-## Assumption
-
-<!-- สิ่งที่กำลังสมมติไว้ ให้ทีมตรวจสอบก่อน/ระหว่าง Review -->
+<!-- อธิบายสั้น ๆ ว่าเปลี่ยนอะไร และทำไม -->
 
 -
 
-## Business Flow
+## ประเภทการเปลี่ยนแปลง
 
-<!-- ลำดับการทำงานของ Feature (ไม่จำเป็นต้องใช้ UML) อธิบายได้โดยไม่ต้องเปิด Source Code -->
+- [ ] API / endpoint
+- [ ] กฎ versioning / pre-release
+- [ ] Config (`AppNames`, path, storage)
+- [ ] ความปลอดภัย / auth
+- [ ] Bug fix
+- [ ] เอกสาร / อื่น ๆ
+
+## ผลกระทบ
+
+- แอปที่กระทบ (`HemoBox` / `HemoCheckIn` / อื่น ๆ):
+- Endpoint / path ที่เปลี่ยน:
+- Breaking change หรือไม่: ใช่ / ไม่ใช่
+  - ถ้าใช่ แผน migrate / แจ้งผู้ใช้:
+
+## Checklist
+
+- [ ] พฤติกรรม version check ยังถูกต้อง (มี version / ไม่มี version / pre-release)
+- [ ] path rule `./apps/{APPNAME}` และ mapping ใน config สอดคล้องกัน
+- [ ] ไม่ทำลาย compatibility กับ App Updater / client เดิมโดยไม่ตั้งใจ
+- [ ] มี test หรือขั้นตอน verify แล้ว
+- [ ] เอกสาร / README อัปเดตถ้าจำเป็น
+- [ ] พร้อม merge และ deploy
+
+## วิธีทดสอบ
 
 1.
 2.
 3.
 
-## API / Database ที่เกี่ยวข้อง
-
-### API
-
-- API ที่เรียกใช้:
-- API ใหม่ที่สร้าง:
-- API ที่ได้รับผลกระทบ:
-
-### Database
-
-- ตารางที่เกี่ยวข้อง:
-- Column ที่เพิ่มหรือแก้ไข:
-- Migration:
-- Index / Constraint / Transaction:
-- ผลกระทบต่อระบบเดิม:
-
-## Edge Case
-
-### Input
+## ความเสี่ยง / Rollback
 
 -
 
-### User Behavior
+## หมายเหตุสำหรับ Reviewer
 
 -
-
-### Business Rule
-
--
-
-### System Failure
-
--
-
-### Concurrency
-
--
-
-### Scale
-
--
-
-## Risk
-
-<!-- ความเสี่ยงก่อนเริ่มพัฒนา / สิ่งที่ควรได้รับการช่วยเหลือหรือ Review เพิ่มเติม -->
-
--
-
-## Alternative Solution
-
-<!-- เสนออย่างน้อย 2 วิธี พร้อมข้อดี ข้อเสีย และเหตุผลที่เลือกแนวทางสุดท้าย -->
-
-### แนวทาง A
-
-- ข้อดี:
-- ข้อเสีย:
-
-### แนวทาง B
-
-- ข้อดี:
-- ข้อเสีย:
-
-### เหตุผลที่เลือก
-
--
-
-## Definition of Done
-
-- [ ] Business Logic ถูกต้อง
-- [ ] ครอบคลุม Edge Case ที่ทราบ
-- [ ] มี Error Handling
-- [ ] มี Logging ที่เหมาะสม
-- [ ] Performance อยู่ในเกณฑ์
-- [ ] Security ถูกต้อง
-- [ ] Transaction ถูกต้อง (ถ้ามี)
-- [ ] ผ่านการทดสอบ
-- [ ] พร้อม Code Review
-- [ ] ไม่มี Known Issue ที่ยังไม่ได้รับการยอมรับ
